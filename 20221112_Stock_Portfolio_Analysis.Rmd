@@ -1,0 +1,34 @@
+---
+title: "20221112_Stock_Portfolio_Analysis"
+author: "Felipe Tufaile, Vinicius de Camargo, Helena Funari, Rodrigo Zamengo"
+date: "11/12/2022"
+output: html_document
+---
+
+
+### Summary
+
+This document aims to study the time series of soybean exports with the aid of the R language and packages available for time series analysis for the mentioned programming language. The study will focus only on the Midwest region of Brazil in order to diminish the impact of different seasonal patterns in the soybean production cycle in different regions of Brazil. The study will, therefore, cover the analysis of its components (trend, seasonality and noise), forecasting export volume for future months using time series models like **sarima** and **prophet**, the implementation of techniques for adjusting the time series as well as any other observation on the characteristics of the time series that might be relevant.
+
+
+```{r configs, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, include = TRUE, message = FALSE)
+```
+
+### Loading libraries
+
+```{r libraries}
+
+## Set working directory
+setwd("~/Insper/Commodity_Export_Forecast")
+
+library(dplyr)
+library(tidyverse)
+library(ggthemes)
+library(fpp3)
+library(forecast)
+library(gridExtra)
+library(ggpubr)
+library(tseries)
+library(prophet)
+```
