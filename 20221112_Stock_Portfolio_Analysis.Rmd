@@ -8,7 +8,7 @@ output: html_document
 
 ### Summary
 
-This document aims to study the time series of soybean exports with the aid of the R language and packages available for time series analysis for the mentioned programming language. The study will focus only on the Midwest region of Brazil in order to diminish the impact of different seasonal patterns in the soybean production cycle in different regions of Brazil. The study will, therefore, cover the analysis of its components (trend, seasonality and noise), forecasting export volume for future months using time series models like **sarima** and **prophet**, the implementation of techniques for adjusting the time series as well as any other observation on the characteristics of the time series that might be relevant.
+Text text text
 
 
 ```{r configs, echo=FALSE}
@@ -31,4 +31,552 @@ library(gridExtra)
 library(ggpubr)
 library(tseries)
 library(prophet)
+library(rugarch)
+library(yfR)
+```
+
+
+```{r reading_stocks, out.width="100%"}
+
+## Defining the start date of the time series
+start_date <- '2021-01-01'
+
+## Defining the stocks that will be considered for this analysis
+tickers <- c("HGRE11.SA", "MGLU3.SA", "VALE3.SA", "PETR4.SA", "B3SA3.SA", "HASH11.SA")
+
+## Reading the log-return of each chosen stock
+#df_log_returns <- yfR::yf_get(
+#  tickers=tickers,
+#  first_date = start_date,
+#  type_return = "log",
+#  freq_data = "daily", 
+#  do_complete_data = TRUE
+#)
+
+setwd("~/Insper/Stock_Portfolio_Analysis")
+df_log_returns <- read_csv("20221113_stocks.csv") %>%
+    mutate(ret_closing_prices = as.numeric(ret_closing_prices))
+
+## Converting the dataframe into a time series object using tsibble
+df_log_returns_tsibble <- df_log_returns %>% 
+  as_tsibble(key = ticker, index = ref_date, regular = FALSE)
+
+## Plotting the closing price time series
+df_log_returns_tsibble %>%
+  autoplot(price_close, colour = "black") +
+  facet_wrap(~ticker, scales = "free_y", ncol = 1) +
+  ggtitle("Closing price for selected stock and ETFs", "Data ranging from Jan-2021 to Nov-22") +
+  labs(x="Reference Date", y = "Closing Price (R$)")
+```
+
+
+```{r plotting_close_price_return, out.width="100%"}
+## Plotting the closing price return time series
+df_log_returns_tsibble %>%
+  autoplot(ret_closing_prices, colour = "black") +
+  facet_wrap(~ticker, scales = "fixed", ncol = 1) +
+  ggtitle("Log Return of Closing Price for selected stock and ETFs", "Data ranging from Jan-2021 to Nov-22") +
+  labs(x="Reference Date", y = "Log Return of Closing Price")
+```
+
+```{r filtering_domain}
+## Calculating the first not null day: when calculating log returns the first day becomes null
+first_date <- df_log_returns_tsibble %>%
+  dplyr::group_by(ticker) %>% 
+  dplyr::filter(ref_date == min(ref_date)) %>% 
+  dplyr::ungroup() %>% 
+  with(max(ref_date))
+
+## Filtering out all data before "first_date"
+df_log_returns_cln_tsibble <- df_log_returns_tsibble %>%
+    dplyr::filter(ref_date > first_date)
+```
+
+
+# Descritivas bacanas
+
+- ACF/PACF dos retornos
+- visualizar os retornos ao quadrado
+- ACF/PACF dos retornos ao quadrado
+
+```{r plotting_acf, out.width=100%}
+df_log_returns_cln_tsibble %>%
+  ACF(ret_closing_prices) %>%
+  autoplot()
+```
+
+
+
+```{r plotting_pacf, out.width=100%}
+df_log_returns_cln_tsibble %>%
+  PACF(ret_closing_prices) %>%
+  autoplot()
+```
+
+
+```{r calculating_return_squared, out.width=100%}
+df_log_returns_cln_tsibble <- df_log_returns_cln_tsibble %>%
+  dplyr::mutate(ret2 = ret_closing_prices^2) 
+
+df_log_returns_cln_tsibble %>%
+  autoplot(ret2, colour = "black") +
+  facet_wrap(~ticker, ncol = 1, scales = "fixed")
+```
+
+
+```{r plotting_acf_log_return_sqrd, out.width=100%}
+df_log_returns_cln_tsibble %>%
+  ACF(ret2) %>% 
+  autoplot()
+```
+
+```{r plotting_pacf_log_return_sqrd, out.width=100%}
+df_log_returns_cln_tsibble %>% 
+  PACF(ret2) %>% 
+  autoplot()
+```
+
+
+
+```{r}
+df_log_returns_cln_tsibble %>%
+  group_by(ticker) %>%
+  summarize(gg=list(ggplot(cur_data(), aes(sample=ret_closing_prices)) + geom_qq() + geom_qq_line() + labs(title=cur_group()))) %>% 
+  dplyr::pull(gg) %>% 
+  patchwork::wrap_plots()
+```
+
+
+```{r}
+df_log_returns_cln_tsibble %>%
+  group_by(ticker) %>%
+  summarize(gg=list(ggplot(cur_data(), aes(sample=ret_closing_prices)) + 
+                      geom_qq(distribution=qt, dparams=list(df=3)) + 
+                      geom_qq_line(distribution=qt, dparams=list(df=3)) + 
+                      labs(title=cur_group()))) %>% 
+  dplyr::pull(gg) %>% 
+  patchwork::wrap_plots()
+```
+
+## Ajustando modelos garch
+
+
+```{r}
+## Adjusting a garch model
+garch_individual <- function(parms, ret, prog = NULL) {
+  if (!is.null(prog)) prog()
+  # daria para adicionar mais hiperparametros!!!
+  garch_model = ugarchspec(
+    variance.model = list(
+      model = "fGARCH",
+      submodel = "GARCH",
+      garchOrder = c(parms$m, parms$n)
+    ),
+    mean.model = list(
+      armaOrder = c(parms$p, parms$q),
+      include.mean = TRUE
+    ),
+    distribution.model = parms$dist
+  )
+  # as vezes ele nao converge
+  suppressWarnings({
+    fit <- ugarchfit(garch_model, data = ret)
+  })
+  fit
+}
+```
+
+
+FunÃ§Ã£o para ajustar uma grid de garchs e pegar as informaÃ§Ãµes
+
+```{r}
+melhor_garch <- function(ativo, p = 0:3, q = 0:3, m = 0:2, n = 0:2, dist = "std") {
+ 
+  # faz uma grid de hiperparÃ¢metros 
+  grid <- expand_grid(p = p, q = q, m = m, n = n, dist = dist) |> 
+    tibble::rownames_to_column("id")
+  
+  # pega o retorno do ativo
+  ret <- da_train |> 
+    dplyr::filter(ticker == ativo) |> 
+    pull(ret_closing_prices)
+  
+  usethis::ui_info("Ajustando modelos para {ativo}...")
+  
+  progressr::with_progress({
+    prog <- progressr::progressor(nrow(grid))
+    modelos <- grid |> 
+      group_split(id) |> 
+      purrr::map(garch_individual, ret = ret, prog)
+  })
+  
+  safe_info <- purrr::possibly(infocriteria, tibble::tibble())
+  
+  suppressWarnings({
+    informacao <- purrr::map(modelos, safe_info) |> 
+      purrr::map(tibble::as_tibble, rownames = "criteria") |> 
+      dplyr::bind_rows(.id = "id")
+  })
+  
+  melhores <- informacao |> 
+    dplyr::inner_join(grid, "id") |> 
+    tidyr::pivot_wider(names_from = criteria, values_from = V1) |> 
+    janitor::clean_names() |> 
+    dplyr::arrange(akaike)
+  
+  usethis::ui_info(c(
+    "Melhor modelo:",
+    "p <- {melhores$p[1]}",
+    "q <- {melhores$q[1]}",
+    "m <- {melhores$m[1]}",
+    "n <- {melhores$n[1]}"
+  ))
+  
+  melhores
+  
+}
+
+```
+
+Rodando as funÃ§Ãµes
+
+```{r}
+#| eval: false
+melhores_por_ativo <- ativos |> 
+  purrr::set_names() |> 
+  purrr::map(melhor_garch) |> 
+  dplyr::bind_rows(.id = "ticker")
+```
+
+```{r}
+#| echo: false
+melhores_por_ativo <- readr::read_rds("melhores_por_ativo.rds")
+```
+
+
+## Prever volatilidade um passo Ã  frente
+
+FunÃ§Ã£o que ajusta o modelo e faz as previsÃµes
+
+```{r}
+prever_volatilidade <- function(parms, n_steps = 5) {
+  
+  ret <- da_train |> 
+    dplyr::filter(ticker == parms$ticker) |> 
+    pull(ret_closing_prices)
+  
+  garch_model = ugarchspec(
+    variance.model = list(
+      model = "fGARCH",
+      submodel = "GARCH",
+      garchOrder = c(parms$m, parms$n)
+    ),
+    mean.model = list(
+      armaOrder = c(parms$p, parms$q),
+      include.mean = TRUE
+    ),
+    distribution.model = parms$dist
+  )
+  
+  fit <- ugarchfit(garch_model, data = ret, out.sample = n_steps - 1)
+  
+  # browser()
+  
+  if (parms$dist == "std") {
+    shape <- as.numeric(fit@fit$coef["shape"])
+  } else {
+    shape <- NA_real_
+  }
+  
+  forecasts <- ugarchforecast(fit, n.ahead = n_steps)@forecast
+  tibble::tibble(
+    ticker = parms$ticker,
+    serie = as.numeric(forecasts$seriesFor),
+    volatilidade = as.numeric(forecasts$sigmaFor),
+    shape = shape
+  )
+}
+```
+
+Ajustando modelos finais e prevendo volatilidade futura
+
+```{r}
+parametros_melhores <- melhores_por_ativo |> 
+  group_by(ticker) |> 
+  slice_head(n = 1) |> 
+  ungroup()
+
+vol_futuro <- parametros_melhores |> 
+  group_split(ticker) |> 
+  purrr::map(prever_volatilidade, n_steps = 1) |> 
+  dplyr::bind_rows()
+
+vol_futuro
+```
+```{r}
+vol_futuro[1,3]
+```
+
+
+## Comparar volatilidades entre os retornos selecionados
+
+#Calcular os VaR
+Considerando: 99% de confianÃ§a
+VaR = 2,33 * raiz de h * valor investido
+
+
+```{r}
+#B3SA3.SA
+
+vars <- c(VaR_B3SA3 = 2.33 * vol_futuro$volatilidade[1] * 10000,
+
+VaR_HGRE11 = 2.33 * vol_futuro$volatilidade[2] * 10000,
+
+VaR_MGLU3 = 2.33 * vol_futuro$volatilidade[3] * 10000,
+
+VaR_PETR4 = 2.33 * vol_futuro$volatilidade[4] * 10000,
+
+VaR_VALE3 = 2.33 * vol_futuro$volatilidade[5] * 10000)
+
+tickers <- c('B3SA3', 'HGRE11', 'MGLU3', 'PETR4', 'VALE3')
+
+vars <- tibble(tickers = tickers, VaRs = vars)
+
+
+arrange(vars, desc(VaRs))
+
+
+
+```
+
+
+...
+
+## Montagem de portifolio
+
+Reproduzindo cÃ³digo daqui:
+
+<https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-r/>
+
+VersÃ£o em python
+
+<https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-python/>
+
+```{r}
+da_wide <- da_train |> 
+  dplyr::select(ref_date, name = ticker, value = ret_closing_prices) |> 
+  tidyr::pivot_wider()
+
+da_xts <- da_wide |> 
+  timetk::tk_xts(select = -ref_date, date_var = ref_date)
+```
+
+
+```{r}
+mean_ret <- colMeans(da_xts, na.rm = TRUE)
+print(round(mean_ret, 5))
+```
+
+Next we will calculate the covariance matrix for all these stocks. We will NOT annualize it by multiplying by 252.
+
+```{r}
+cov_mat <- cov(da_xts, use = "complete.obs")
+print(round(cov_mat,6))
+```
+
+Before we apply our methods to thousands of random portfolio, let us demonstrate the steps on a single portfolio.
+
+To calculate the portfolio returns and risk (standard deviation) we will us need
+
+- Mean assets returns
+- Portfolio weights
+- Covariance matrix of all assets
+- Random weights
+
+```{r}
+set.seed(2)
+# Calculate the random weights
+wts <- runif(n = length(ativos))
+
+(wts <- wts/sum(wts))
+
+# Calculate the portfolio returns
+(port_returns <- sum(wts * mean_ret))
+
+# Calculate the portfolio risk
+(port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts)))
+
+# Calculate the Sharpe Ratio
+(sharpe_ratio <- port_returns/port_risk)
+```
+
+We have everything we need to perform our optimization. All we need now is to run this code on 5000 random portfolios. For that we will use a for loop. 
+
+
+~Before we do that, we need to create empty vectors and matrix for storing our values.~
+
+```{r}
+
+sim_returns <- function(i) {
+  wts <- runif(length(ativos))
+  wts <- wts / sum(wts)
+  port_ret <- sum(wts * mean_ret)
+  port_sd <- as.numeric(sqrt(t(wts) %*% (cov_mat %*% wts)))
+  sr <- port_ret / port_sd
+  
+  wts |> 
+    purrr::set_names(tickers) |> 
+    tibble::enframe() |> 
+    tidyr::pivot_wider() |> 
+    dplyr::mutate(
+      return = port_ret,
+      risk = port_sd,
+      sharpe = sr
+    )
+}
+
+portfolio_values <- purrr::map(1:5000, sim_returns) |> 
+  bind_rows(.id = "run")
+
+min_var <- portfolio_values[which.min(portfolio_values$risk),]
+max_sr <- portfolio_values[which.max(portfolio_values$sharpe),]
+
+```
+
+Lets plot the weights of each portfolio. First with the minimum variance portfolio.
+
+```{r}
+
+min_var |> 
+  pivot_longer(2:6) |> 
+  mutate(name = forcats::fct_reorder(name, value)) |> 
+  ggplot(aes(name, value)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = "Asset",
+    y = "Weight",
+    title = "Minimum variance portfolio weights"
+  )
+
+```
+
+```{r}
+max_sr |> 
+  pivot_longer(2:6) |> 
+  mutate(name = forcats::fct_reorder(name, value)) |> 
+  ggplot(aes(name, value)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = "Asset",
+    y = "Weight",
+    title = "Tangency portfolio weights"
+  )
+```
+
+```{r}
+portfolio_values |> 
+  ggplot(aes(x = risk, y = return, color = sharpe)) +
+  geom_point() +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(
+    x = 'Risk',
+    y = 'Returns',
+    title = "Portfolio Optimization & Efficient Frontier"
+  ) +
+  geom_point(
+    aes(x = risk, y = return), 
+    data = min_var, 
+    color = 'red'
+  ) +
+  geom_point(
+    aes(x = risk, y = return), 
+    data = max_sr, 
+    color = 'red'
+  )
+```
+
+## VaR do portfolio
+
+```{r}
+pesos_finais <- min_var |> 
+  dplyr::select(2:6) |> 
+  as.numeric()
+
+
+rt_final <- mean(vol_futuro$serie * pesos_finais)
+st_dev_final <- sqrt(pesos_finais %*% cov_mat %*% pesos_finais)
+nu <- min(vol_futuro$shape)
+valor_t <- qt(.95, nu)
+
+(VaR <- rt_final + valor_t * st_dev_final / sqrt(nu/(nu-2)))
+```
+
+## CAPM
+
+```{r}
+portfolio_returns <- da_train |> 
+  tidyquant::tq_portfolio(
+    ticker, 
+    ret_closing_prices, 
+    weights = pesos_finais,
+    col_rename = "portfolio"
+  )
+
+market_returns <- yfR::yf_get(
+  "^BVSP",
+  first_date = data_corte + 1,
+  type_return = "log",
+  freq_data = "daily", 
+  do_complete_data = TRUE
+) |> 
+  dplyr::select(ref_date, ibov = ret_closing_prices)
+
+all_returns <- market_returns |> 
+  dplyr::inner_join(portfolio_returns, "ref_date") |> 
+  tidyr::drop_na()
+
+(beta_geral <- with(all_returns, cov(portfolio, ibov) / var(ibov)))
+
+calcular_beta <- function(ativo) {
+  da_train |> 
+    dplyr::filter(ticker == ativo) |> 
+    dplyr::inner_join(market_returns, "ref_date") |> 
+    tidyr::drop_na() |> 
+    with(cov(ret_closing_prices, ibov) / var(ibov))
+}
+
+betas <- purrr::map_dbl(ativos, calcular_beta) |> 
+  purrr::set_names(ativos)
+
+sum(betas * pesos_finais)
+beta_geral
+
+```
+
+```{r}
+
+capm_lm_tudo <- lm(portfolio ~ ibov, data = all_returns) |> 
+  broom::tidy() |> 
+  dplyr::filter(term == "ibov") |> 
+  with(estimate)
+
+capm_lm_individual <- purrr::map_dbl(ativos, \(ativo) {
+  da_model <- da_train |> 
+    dplyr::filter(ticker == ativo) |> 
+    dplyr::inner_join(market_returns, "ref_date")
+  lm(ret_closing_prices ~ ibov, data = da_model) |> 
+    broom::tidy() |> 
+    dplyr::filter(term == "ibov") |> 
+    dplyr::pull(estimate)
+}) |> 
+  purrr::set_names(ativos)
+
+
+capm_lm_tudo
+
+capm_lm_individual
 ```
