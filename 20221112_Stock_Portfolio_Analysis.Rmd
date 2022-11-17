@@ -1,26 +1,45 @@
 ---
-title: "20221112_Stock_Portfolio_Analysis"
+title: "Assets Portfolio Analysis"
 author: "Felipe Tufaile, Vinicius de Camargo, Helena Funari, Rodrigo Zamengo"
 date: "11/12/2022"
 output: html_document
 ---
 
 
-### Summary
+## Summary
 
-Text text text
+This document studies the time series of a group of 6 financial instruments with the aim of suggesting an investment portfolio composed of the assets in question in calculated proportion. The proportion of each asset, in turn, will be calculated by analyzing the assets log-return series, as well as modeling its volatility and calculating the Sharpe index. Finally, the study will end calculating the return of the portfolio, as well as its volatility, and compare it to a benchmark, which in this case will be considered to be, primary, the **IBOVESPA** index, but also the **CDI** (Interbank Deposit Certificate) index. 
+For the purpose fo this work, it will analyzed the following assets:
+
+
+  **Company Stocks**\
+  
+  - Magazine Luiza S.A. (MGLU3.SA);\
+  
+  - Vale S.A. (VALE3.SA);\
+  
+  - Petróleo Brasileiro S.A. - Petrobras (PETR4.SA);\ 
+  
+  - B3 S.A. - Brasil, Bolsa, Balcão (B3SA3.SA);\
+  
+  - Eneva S.A. (ENEV3.SA);\
+  
+  
+  **Real Estate Investment Fund**\
+  
+  - CSHG Real Estate - Fundo de Investimento Imobiliario - FII (HGRE11.SA);
 
 
 ```{r configs, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, include = TRUE, message = FALSE)
 ```
 
-### Loading libraries
+## Loading libraries
 
 ```{r libraries}
 
 ## Set working directory
-setwd("~/Insper/Commodity_Export_Forecast")
+setwd("~/Insper/Stock_Portfolio_Analysis")
 
 library(dplyr)
 library(tidyverse)
@@ -35,11 +54,30 @@ library(rugarch)
 library(yfR)
 ```
 
+## Plotting stock price series
+
+The following plot shows the closing price for each of the assets mentioned in the summary of this document. The time series initial date was set to 2019-11-01 (Friday) and the final date the 2022-10-31 (Monday), configuring a time period of three years with price information in daily basis. Furthermore, by starting at the end of the year 2019, the prices fluctuation will capture the stock market crash due to the world health crisis announcement (COVID pandemics) on march 2020 and also the impact of the pandemic on the economy in subsequent months.
+
+During the pandemics, the fact that people were secluded at home caused the demand for delivery to increase significantly, mostly because delivery would be the most convenient option during lock-down but also because buying material goods would be a way of getting rid of boredom of being locked-down. In that context, eCommerce like **MGLU3.SA**, saw their sales volume boom resulting an increase of their stock prices in subsequently months. However, this movement also resulted an inflationary pressure in the price of goods which, along with the fact that many people were laid off during the pandemics, caused a decrease in the demand of delivery as the number of COVID cases saw a deceleration in the end of 2021. Consequently causing the stock prices of eCommerce companies to lose value.
+
+For **VALE3.SA**, the initial high value of the stock is a reflection of the attempt to restart the economy with the slowdown of the pandemic. This moment lasted until the third quarter of 2021, when a drop in the price of iron ore on the global market caused a decrease in value of the stock. On the other hand, the value of the asset rose again at the beginning of 2022 due to the lack of competition on the global market since the war in Ukraine started, along with the expectation of an upturn in the Chinese economy. However, it soon fell again when the Chinese government reestablished restrictions to contain further advances of COVID.
+
+On the other hand, **PETR4.SA** saw its stock value increase since the end of 2020 due to constant readjustments of local oil prices to international prices, motivated by the rise of the dollar, and to the increase in oil prices, in a more general way, due to the war between Russia and Ukraine since the beginning of 2022. More recently, the loss in value of the stock price was driven by risk aversion towards the future of the company with the election of Lula (even before the actual result). The financial market sees the election of Lula as a negative sign for the company since it would result in more interference, by the state, in company's business.
+
+**B3SA3.SA** was also impacted by the effects of the pandemic. The unprecedented drop in the value of company shares in general, added to the low return on fixed-income investments, opened an opportunity for many people to start investing in variable income with the aim of obtaining significant financial gains. With more people investing in variable income, B3 saw its revenue increase. However, with the gradual realization of profit by investors, added to the rise in the basic interest rate in order to contain the inflationary pressures caused by the pandemic, many investors migrated from variable income to fixed income, gradually reducing the company's ability to generate profit. In the beginning of 2022, in turn, reports showed that the company was favored by a large inflow of foreign money, however, in the beginning of April 2022, the company released an inform announcing a correction in the measurement of foreign money inflow which, in fact, indicated a decrease in external investments. This news caused a decrease on the asset value at the time, which has been recently recovered with positive performance.
+
+For **ENEV3.SA** the value of the stock decreased with the increase of the interest rate in Brazil since it slowed down several projects that the company had in its horizon reaching the lowest value in the beginning of 2022. Since then, the sequence of positive performance along with the promise of being able to end the payment of its accumulated debt in 2023 (damage caused by the scandal involving Eike Batista) has led the stock price to increase. However, the recent resignation of the company's CEO, Pedro Zinner, who has been instrumental in the company's financial restructuring, caused the asset price to fall again.
+
+Finally, **HGRE11.SA**, a real estate fund whose investments are mainly earmarked for properties in the corporate slab segment, saw the vacancy level of the fund's properties increase significantly during the pandemic, causing a negative impact on the value of the asset. However, the resumption of face-to-face work by companies has caused the vacancy value of properties to decrease recently. Mainly for properties located on important avenues such as Faria Lima.
+
 
 ```{r reading_stocks, out.width="100%"}
 
 ## Defining the start date of the time series
-start_date <- '2021-01-01'
+start_date <- '2019-11-01'
+
+## Defining the end date of the time series
+end_date <- '2022-10-31'
 
 ## Defining the stocks that will be considered for this analysis
 tickers <- c("HGRE11.SA", "MGLU3.SA", "VALE3.SA", "PETR4.SA", "B3SA3.SA", "HASH11.SA")
@@ -53,9 +91,11 @@ tickers <- c("HGRE11.SA", "MGLU3.SA", "VALE3.SA", "PETR4.SA", "B3SA3.SA", "HASH1
 #  do_complete_data = TRUE
 #)
 
-setwd("~/Insper/Stock_Portfolio_Analysis")
-df_log_returns <- read_csv("20221113_stocks.csv") %>%
-    mutate(ret_closing_prices = as.numeric(ret_closing_prices))
+
+## Reading the log-return of the assets closing price from a csv file
+df_log_returns <- read_csv("20221116_stocks.csv") %>%
+    mutate(ret_closing_prices = as.numeric(ret_closing_prices)) %>%
+    filter(ref_date >= start_date & ref_date <= end_date)
 
 ## Converting the dataframe into a time series object using tsibble
 df_log_returns_tsibble <- df_log_returns %>% 
@@ -65,17 +105,23 @@ df_log_returns_tsibble <- df_log_returns %>%
 df_log_returns_tsibble %>%
   autoplot(price_close, colour = "black") +
   facet_wrap(~ticker, scales = "free_y", ncol = 1) +
-  ggtitle("Closing price for selected stock and ETFs", "Data ranging from Jan-2021 to Nov-22") +
+  ggtitle("Closing price for selected assets", 
+          "Data ranging from Nov-2019 to Nov-22") +
   labs(x="Reference Date", y = "Closing Price (R$)")
 ```
 
 
+## Plotting the log return series of the stock price
+
+Looking at the graph of the log return on the closing price of the assets, it is noted that the visual aspect of the return series of "MGLU3.SA" is the one that suggests the highest volatility, especially in the last 12 months. On the other hand, the visual aspect of the real estate investment fund log return series suggests that the asset has the lowest volatility among those studied. That statement will be verified later on this document, however it gives an educated guess about what to expect when calculating the volatility of the stock prices. 
+
 ```{r plotting_close_price_return, out.width="100%"}
-## Plotting the closing price return time series
+## Plotting the closing price log return time series
 df_log_returns_tsibble %>%
   autoplot(ret_closing_prices, colour = "black") +
   facet_wrap(~ticker, scales = "fixed", ncol = 1) +
-  ggtitle("Log Return of Closing Price for selected stock and ETFs", "Data ranging from Jan-2021 to Nov-22") +
+  ggtitle("Log return of closing prices of selected assets", 
+          "Data ranging from Nov-2019 to Nov-22") +
   labs(x="Reference Date", y = "Log Return of Closing Price")
 ```
 
@@ -93,28 +139,88 @@ df_log_returns_cln_tsibble <- df_log_returns_tsibble %>%
 ```
 
 
-# Descritivas bacanas
+## Plotting the ACF and PACF functions of the log-returns
 
-- ACF/PACF dos retornos
-- visualizar os retornos ao quadrado
-- ACF/PACF dos retornos ao quadrado
 
-```{r plotting_acf, out.width=100%}
+The plot of the **ACF** and **PACF** functions suggests the presence of some autocorrelation for all log-return series, especially for "ENEV3.SA", "HGRE11.SA" and "PETR4.SA". That means that the log-return of the chosen stocks would not be considered **stationary** and, therefore, they would have unit roots. Consequently, it would be necessary to fit a **ARMA** model to make the log return series stationary. However, the **KPSS** and an **ADF** test suggests no presence of unit roots in any of the log return series, as it can be seen in the sequence. That confirms one of the usual facts in finance that is that the return series are usually not auto-correlated and are stationary. Given the result of the **KPSS** and **ADF** tests, the log return series will be considered stationary.
+
+```{r plotting_acf, out.width="100%"}
 df_log_returns_cln_tsibble %>%
   ACF(ret_closing_prices) %>%
-  autoplot()
+  autoplot() +
+  ggtitle("ACF plot of the log return of closing prices of selected assets", 
+          "Data ranging from Nov-2019 to Nov-22") +
+  labs(x="Lag", y = "ACF")
 ```
 
 
 
-```{r plotting_pacf, out.width=100%}
+```{r plotting_pacf, out.width="100%"}
 df_log_returns_cln_tsibble %>%
   PACF(ret_closing_prices) %>%
-  autoplot()
+  autoplot() +
+  ggtitle("PACF plot of the log return of closing prices of selected assets", 
+          "Data ranging from Nov-2019 to Nov-22") +
+  labs(x="Lag", y = "PACF")
+```
+
+## KPSS test on each stock series
+
+
+The Kwiatkowski-Phillips-Schmidt-Shin (**KPSS**) test, (Kwiatkowski et al., 1992), is suggested by Robert Hyndman in his book (Hynman, 2021) as an alternative to verift the existance of unit roots in a time series. The test assumes that the data is stationary as the null hypothesis. Therefore, small p-values suggest that the data has an unit root and that differencing is required. Considering the log_return series, the **KPSS** test yields a p-value higher than 0.05 for each stock series, therefore, failing to reject null hypothesis. With that, all log-return series can be considered stationary as the graphical analysis of the ACF and PACF functions suggested.
+
+```{r kpss_test_transformed}
+## Performing KPSS test
+fabletools::features(.tbl=df_log_returns_cln_tsibble %>% select(ticker, ret_closing_prices) %>% group_by(ticker), 
+                     .var=ret_closing_prices, 
+                     features=list(unitroot_kpss, unitroot_nsdiffs))
+
+```
+
+## Augmented Dickey-Fuller (ADF) test on each stock series
+
+The null hypothesis of the **ADF** assumes that there is an unit root in the time series (therefore the series is non-stationary), whereas the alternate hypothesis assumes that the series are stationary. Since the p-values obtained for both tests are low (less than 0.05) the null hypothesis is rejected indicating that the series are stationary.
+
+
+
+```{r adf_test_transformed}
+## Performing KPSS test
+fabletools::features(.tbl=df_log_returns_cln_tsibble %>% select(ticker, ret_closing_prices) %>% group_by(ticker), 
+                     .var=ret_closing_prices, 
+                     features=list(unitroot_kpss, unitroot_nsdiffs))
+
+```
+
+```{r adf_test_original}
+## Remove the first null datat point from the log return series
+df_log_returns <- df_log_returns %>%
+  dplyr::filter(ref_date > first_date)
+
+## Pulling log return data for each log return series
+B3SA3 <- df_log_returns %>% filter(ticker == 'B3SA3.SA') %>% select(ret_closing_prices) %>% pull()
+ENEV3 <- df_log_returns %>% filter(ticker == 'ENEV3.SA') %>% select(ret_closing_prices) %>% pull()
+HGRE11 <- df_log_returns %>% filter(ticker == 'HGRE11.SA') %>% select(ret_closing_prices) %>% pull()
+MGLU3 <- df_log_returns %>% filter(ticker == 'MGLU3.SA') %>% select(ret_closing_prices) %>% pull()
+PETR4 <- df_log_returns %>% filter(ticker == 'PETR4.SA') %>% select(ret_closing_prices) %>% pull()
+VALE3 <- df_log_returns %>% filter(ticker == 'VALE3.SA') %>% select(ret_closing_prices) %>% pull()
+
+## Printing test results
+print(tseries::adf.test(B3SA3, alternative = c("stationary", "explosive"), k = trunc((length(B3SA3)-1)^(1/3))))
+print(tseries::adf.test(ENEV3, alternative = c("stationary", "explosive"), k = trunc((length(ENEV3)-1)^(1/3))))
+print(tseries::adf.test(HGRE11, alternative = c("stationary", "explosive"), k = trunc((length(HGRE11)-1)^(1/3))))
+print(tseries::adf.test(MGLU3, alternative = c("stationary", "explosive"), k = trunc((length(MGLU3)-1)^(1/3))))
+print(tseries::adf.test(PETR4, alternative = c("stationary", "explosive"), k = trunc((length(PETR4)-1)^(1/3))))
+print(tseries::adf.test(VALE3, alternative = c("stationary", "explosive"), k = trunc((length(VALE3)-1)^(1/3))))
 ```
 
 
-```{r calculating_return_squared, out.width=100%}
+## Squared log return series
+
+The calculation of the squared log return series of the assets prices show some interesting facts. 
+Firstly, by squaring the log returns, the points in time that faced more volatility becomes more evident. For instance, it becomes even more clear the moment when the financial market crashed in March 2020 due to the announcement of the COVID pandemics. Another moment of high volatility that became more evident with the squared log return series is the peak that happen in "PETR4.SA" series in the first quarter of 2021. A quick research about this phenomena shows that "PETR4.SA" stock prices dropped nearly 21%, after president Jair Bolsonaro appointed General Joaquim Silva e Luna to replace the company's current president, Roberto Castello Branco. For Magazine Luiza, on other hand, a high volatility peak in the mid of the last quarter of 2021 was the result of the company's earnings release relative to the third quarter of the same year which indicated a decrease of nearly 90% of the gross revenue compared to the same period in the year before.
+Secondly, the squared log return also highlight another important usual fact that is common to financial data which is the presence of **conditional heteroscedasticity** or **volatility gathering** - periods when low and high fluctuations alternates. This last fact can be more easily diagnosed plotting the **ACF** and **PACF** functions of the squared log returns and noticing the existence of autocorrelation.  
+
+```{r calculating_return_squared, out.width="100%"}
 df_log_returns_cln_tsibble <- df_log_returns_cln_tsibble %>%
   dplyr::mutate(ret2 = ret_closing_prices^2) 
 
@@ -124,13 +230,13 @@ df_log_returns_cln_tsibble %>%
 ```
 
 
-```{r plotting_acf_log_return_sqrd, out.width=100%}
+```{r plotting_acf_log_return_sqrd, out.width="100%"}
 df_log_returns_cln_tsibble %>%
   ACF(ret2) %>% 
   autoplot()
 ```
 
-```{r plotting_pacf_log_return_sqrd, out.width=100%}
+```{r plotting_pacf_log_return_sqrd, out.width="100%"}
 df_log_returns_cln_tsibble %>% 
   PACF(ret2) %>% 
   autoplot()
@@ -138,24 +244,32 @@ df_log_returns_cln_tsibble %>%
 
 
 
+
 ```{r}
-df_log_returns_cln_tsibble %>%
-  group_by(ticker) %>%
-  summarize(gg=list(ggplot(cur_data(), aes(sample=ret_closing_prices)) + geom_qq() + geom_qq_line() + labs(title=cur_group()))) %>% 
-  dplyr::pull(gg) %>% 
-  patchwork::wrap_plots()
+#df_log_returns_cln_tsibble %>%
+#  group_by(ticker) %>%
+#  summarize(gg=list(ggplot(cur_data(), aes(sample=ret_closing_prices)) + geom_qq() + geom_qq_line() + labs(title=cur_group()))) %>% 
+#  dplyr::pull(gg) %>% 
+#  patchwork::wrap_plots()
 ```
 
 
-```{r}
-df_log_returns_cln_tsibble %>%
-  group_by(ticker) %>%
-  summarize(gg=list(ggplot(cur_data(), aes(sample=ret_closing_prices)) + 
-                      geom_qq(distribution=qt, dparams=list(df=3)) + 
-                      geom_qq_line(distribution=qt, dparams=list(df=3)) + 
-                      labs(title=cur_group()))) %>% 
-  dplyr::pull(gg) %>% 
-  patchwork::wrap_plots()
+```{r qqplots, out.width="100%"}
+#df_log_returns_cln_tsibble %>%
+#  group_by(ticker) %>%
+#  summarize(gg=list(ggplot(cur_data(), aes(sample=ret_closing_prices)) + 
+#                      geom_qq(distribution=qt, dparams=list(df=3)) + 
+#                      geom_qq_line(distribution=qt, dparams=list(df=3)) + 
+#                      labs(title=cur_group()))) %>% 
+#  dplyr::pull(gg) %>% 
+#  patchwork::wrap_plots()
+
+
+ggplot(df_log_returns_cln_tsibble, aes(sample = ret_closing_prices)) +
+geom_qq() +
+geom_qq_line() +
+facet_grid(ticker ~ ., scales = "free_y") +
+ggtitle("QQ plot of log return for each stock", "None of the distributions could be considered normal")
 ```
 
 ## Ajustando modelos garch
@@ -190,51 +304,51 @@ garch_individual <- function(parms, ret, prog = NULL) {
 FunÃ§Ã£o para ajustar uma grid de garchs e pegar as informaÃ§Ãµes
 
 ```{r}
-melhor_garch <- function(ativo, p = 0:3, q = 0:3, m = 0:2, n = 0:2, dist = "std") {
- 
-  # faz uma grid de hiperparÃ¢metros 
-  grid <- expand_grid(p = p, q = q, m = m, n = n, dist = dist) |> 
-    tibble::rownames_to_column("id")
-  
-  # pega o retorno do ativo
-  ret <- da_train |> 
-    dplyr::filter(ticker == ativo) |> 
-    pull(ret_closing_prices)
-  
-  usethis::ui_info("Ajustando modelos para {ativo}...")
-  
-  progressr::with_progress({
-    prog <- progressr::progressor(nrow(grid))
-    modelos <- grid |> 
-      group_split(id) |> 
-      purrr::map(garch_individual, ret = ret, prog)
-  })
-  
-  safe_info <- purrr::possibly(infocriteria, tibble::tibble())
-  
-  suppressWarnings({
-    informacao <- purrr::map(modelos, safe_info) |> 
-      purrr::map(tibble::as_tibble, rownames = "criteria") |> 
-      dplyr::bind_rows(.id = "id")
-  })
-  
-  melhores <- informacao |> 
-    dplyr::inner_join(grid, "id") |> 
-    tidyr::pivot_wider(names_from = criteria, values_from = V1) |> 
-    janitor::clean_names() |> 
-    dplyr::arrange(akaike)
-  
-  usethis::ui_info(c(
-    "Melhor modelo:",
-    "p <- {melhores$p[1]}",
-    "q <- {melhores$q[1]}",
-    "m <- {melhores$m[1]}",
-    "n <- {melhores$n[1]}"
-  ))
-  
-  melhores
-  
-}
+#melhor_garch <- function(ativo, p = 0:3, q = 0:3, m = 0:2, n = 0:2, dist = "std") {
+# 
+#  # faz uma grid de hiperparÃ¢metros 
+#  grid <- expand_grid(p = p, q = q, m = m, n = n, dist = dist) |> 
+#    tibble::rownames_to_column("id")
+#  
+#  # pega o retorno do ativo
+#  ret <- da_train |> 
+#    dplyr::filter(ticker == ativo) |> 
+#    pull(ret_closing_prices)
+#  
+#  usethis::ui_info("Ajustando modelos para {ativo}...")
+#  
+#  progressr::with_progress({
+#    prog <- progressr::progressor(nrow(grid))
+#    modelos <- grid |> 
+#      group_split(id) |> 
+#      purrr::map(garch_individual, ret = ret, prog)
+#  })
+#  
+#  safe_info <- purrr::possibly(infocriteria, tibble::tibble())
+#  
+#  suppressWarnings({
+#    informacao <- purrr::map(modelos, safe_info) |> 
+#      purrr::map(tibble::as_tibble, rownames = "criteria") |> 
+#      dplyr::bind_rows(.id = "id")
+#  })
+#  
+#  melhores <- informacao |> 
+#    dplyr::inner_join(grid, "id") |> 
+#    tidyr::pivot_wider(names_from = criteria, values_from = V1) |> 
+#    janitor::clean_names() |> 
+#    dplyr::arrange(akaike)
+#  
+#  usethis::ui_info(c(
+#    "Melhor modelo:",
+#    "p <- {melhores$p[1]}",
+#    "q <- {melhores$q[1]}",
+#    "m <- {melhores$m[1]}",
+#    "n <- {melhores$n[1]}"
+#  ))
+#  
+#  melhores
+#  
+#}
 
 ```
 
@@ -242,15 +356,15 @@ Rodando as funÃ§Ãµes
 
 ```{r}
 #| eval: false
-melhores_por_ativo <- ativos |> 
-  purrr::set_names() |> 
-  purrr::map(melhor_garch) |> 
-  dplyr::bind_rows(.id = "ticker")
+#melhores_por_ativo <- ativos |> 
+#  purrr::set_names() |> 
+#  purrr::map(melhor_garch) |> 
+#  dplyr::bind_rows(.id = "ticker")
 ```
 
 ```{r}
 #| echo: false
-melhores_por_ativo <- readr::read_rds("melhores_por_ativo.rds")
+#melhores_por_ativo <- readr::read_rds("melhores_por_ativo.rds")
 ```
 
 
@@ -259,62 +373,63 @@ melhores_por_ativo <- readr::read_rds("melhores_por_ativo.rds")
 FunÃ§Ã£o que ajusta o modelo e faz as previsÃµes
 
 ```{r}
-prever_volatilidade <- function(parms, n_steps = 5) {
-  
-  ret <- da_train |> 
-    dplyr::filter(ticker == parms$ticker) |> 
-    pull(ret_closing_prices)
-  
-  garch_model = ugarchspec(
-    variance.model = list(
-      model = "fGARCH",
-      submodel = "GARCH",
-      garchOrder = c(parms$m, parms$n)
-    ),
-    mean.model = list(
-      armaOrder = c(parms$p, parms$q),
-      include.mean = TRUE
-    ),
-    distribution.model = parms$dist
-  )
-  
-  fit <- ugarchfit(garch_model, data = ret, out.sample = n_steps - 1)
-  
-  # browser()
-  
-  if (parms$dist == "std") {
-    shape <- as.numeric(fit@fit$coef["shape"])
-  } else {
-    shape <- NA_real_
-  }
-  
-  forecasts <- ugarchforecast(fit, n.ahead = n_steps)@forecast
-  tibble::tibble(
-    ticker = parms$ticker,
-    serie = as.numeric(forecasts$seriesFor),
-    volatilidade = as.numeric(forecasts$sigmaFor),
-    shape = shape
-  )
-}
+#prever_volatilidade <- function(parms, n_steps = 5) {
+#  
+#  ret <- da_train |> 
+#    dplyr::filter(ticker == parms$ticker) |> 
+#    pull(ret_closing_prices)
+#  
+#  garch_model = ugarchspec(
+#    variance.model = list(
+#      model = "fGARCH",
+#      submodel = "GARCH",
+#      garchOrder = c(parms$m, parms$n)
+#    ),
+#    mean.model = list(
+#      armaOrder = c(parms$p, parms$q),
+#      include.mean = TRUE
+#    ),
+#    distribution.model = parms$dist
+#  )
+#  
+#  fit <- ugarchfit(garch_model, data = ret, out.sample = n_steps - 1)
+#  
+#  # browser()
+#  
+#  if (parms$dist == "std") {
+#    shape <- as.numeric(fit@fit$coef["shape"])
+#  } else {
+#    shape <- NA_real_
+#  }
+#  
+#  forecasts <- ugarchforecast(fit, n.ahead = n_steps)@forecast
+#  tibble::tibble(
+#    ticker = parms$ticker,
+#    serie = as.numeric(forecasts$seriesFor),
+#    volatilidade = as.numeric(forecasts$sigmaFor),
+#    shape = shape
+#  )
+#}
 ```
 
 Ajustando modelos finais e prevendo volatilidade futura
 
 ```{r}
-parametros_melhores <- melhores_por_ativo |> 
-  group_by(ticker) |> 
-  slice_head(n = 1) |> 
-  ungroup()
-
-vol_futuro <- parametros_melhores |> 
-  group_split(ticker) |> 
-  purrr::map(prever_volatilidade, n_steps = 1) |> 
-  dplyr::bind_rows()
-
-vol_futuro
+#parametros_melhores <- melhores_por_ativo |> 
+#  group_by(ticker) |> 
+#  slice_head(n = 1) |> 
+#  ungroup()
+#
+#vol_futuro <- parametros_melhores |> 
+#  group_split(ticker) |> 
+#  purrr::map(prever_volatilidade, n_steps = 1) |> 
+#  dplyr::bind_rows()
+#
+#vol_futuro
 ```
+
 ```{r}
-vol_futuro[1,3]
+#vol_futuro[1,3]
 ```
 
 
@@ -328,22 +443,22 @@ VaR = 2,33 * raiz de h * valor investido
 ```{r}
 #B3SA3.SA
 
-vars <- c(VaR_B3SA3 = 2.33 * vol_futuro$volatilidade[1] * 10000,
-
-VaR_HGRE11 = 2.33 * vol_futuro$volatilidade[2] * 10000,
-
-VaR_MGLU3 = 2.33 * vol_futuro$volatilidade[3] * 10000,
-
-VaR_PETR4 = 2.33 * vol_futuro$volatilidade[4] * 10000,
-
-VaR_VALE3 = 2.33 * vol_futuro$volatilidade[5] * 10000)
-
-tickers <- c('B3SA3', 'HGRE11', 'MGLU3', 'PETR4', 'VALE3')
-
-vars <- tibble(tickers = tickers, VaRs = vars)
-
-
-arrange(vars, desc(VaRs))
+#vars <- c(VaR_B3SA3 = 2.33 * vol_futuro$volatilidade[1] * 10000,
+#
+#VaR_HGRE11 = 2.33 * vol_futuro$volatilidade[2] * 10000,
+#
+#VaR_MGLU3 = 2.33 * vol_futuro$volatilidade[3] * 10000,
+#
+#VaR_PETR4 = 2.33 * vol_futuro$volatilidade[4] * 10000,
+#
+#VaR_VALE3 = 2.33 * vol_futuro$volatilidade[5] * 10000)
+#
+#tickers <- c('B3SA3', 'HGRE11', 'MGLU3', 'PETR4', 'VALE3')
+#
+#vars <- tibble(tickers = tickers, VaRs = vars)
+#
+#
+#arrange(vars, desc(VaRs))
 
 
 
@@ -363,25 +478,25 @@ VersÃ£o em python
 <https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-python/>
 
 ```{r}
-da_wide <- da_train |> 
-  dplyr::select(ref_date, name = ticker, value = ret_closing_prices) |> 
-  tidyr::pivot_wider()
-
-da_xts <- da_wide |> 
-  timetk::tk_xts(select = -ref_date, date_var = ref_date)
+#da_wide <- da_train |> 
+#  dplyr::select(ref_date, name = ticker, value = ret_closing_prices) |> 
+#  tidyr::pivot_wider()
+#
+#da_xts <- da_wide |> 
+#  timetk::tk_xts(select = -ref_date, date_var = ref_date)
 ```
 
 
 ```{r}
-mean_ret <- colMeans(da_xts, na.rm = TRUE)
-print(round(mean_ret, 5))
+#mean_ret <- colMeans(da_xts, na.rm = TRUE)
+#print(round(mean_ret, 5))
 ```
 
 Next we will calculate the covariance matrix for all these stocks. We will NOT annualize it by multiplying by 252.
 
 ```{r}
-cov_mat <- cov(da_xts, use = "complete.obs")
-print(round(cov_mat,6))
+#cov_mat <- cov(da_xts, use = "complete.obs")
+#print(round(cov_mat,6))
 ```
 
 Before we apply our methods to thousands of random portfolio, let us demonstrate the steps on a single portfolio.
@@ -394,20 +509,20 @@ To calculate the portfolio returns and risk (standard deviation) we will us need
 - Random weights
 
 ```{r}
-set.seed(2)
+#set.seed(2)
 # Calculate the random weights
-wts <- runif(n = length(ativos))
+#wts <- runif(n = length(ativos))
 
-(wts <- wts/sum(wts))
+#(wts <- wts/sum(wts))
 
 # Calculate the portfolio returns
-(port_returns <- sum(wts * mean_ret))
+#(port_returns <- sum(wts * mean_ret))
 
 # Calculate the portfolio risk
-(port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts)))
+#(port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts)))
 
 # Calculate the Sharpe Ratio
-(sharpe_ratio <- port_returns/port_risk)
+#(sharpe_ratio <- port_returns/port_risk)
 ```
 
 We have everything we need to perform our optimization. All we need now is to run this code on 5000 random portfolios. For that we will use a for loop. 
@@ -416,30 +531,30 @@ We have everything we need to perform our optimization. All we need now is to ru
 ~Before we do that, we need to create empty vectors and matrix for storing our values.~
 
 ```{r}
-
-sim_returns <- function(i) {
-  wts <- runif(length(ativos))
-  wts <- wts / sum(wts)
-  port_ret <- sum(wts * mean_ret)
-  port_sd <- as.numeric(sqrt(t(wts) %*% (cov_mat %*% wts)))
-  sr <- port_ret / port_sd
-  
-  wts |> 
-    purrr::set_names(tickers) |> 
-    tibble::enframe() |> 
-    tidyr::pivot_wider() |> 
-    dplyr::mutate(
-      return = port_ret,
-      risk = port_sd,
-      sharpe = sr
-    )
-}
-
-portfolio_values <- purrr::map(1:5000, sim_returns) |> 
-  bind_rows(.id = "run")
-
-min_var <- portfolio_values[which.min(portfolio_values$risk),]
-max_sr <- portfolio_values[which.max(portfolio_values$sharpe),]
+#
+#sim_returns <- function(i) {
+#  wts <- runif(length(ativos))
+#  wts <- wts / sum(wts)
+#  port_ret <- sum(wts * mean_ret)
+#  port_sd <- as.numeric(sqrt(t(wts) %*% (cov_mat %*% wts)))
+#  sr <- port_ret / port_sd
+#  
+#  wts |> 
+#    purrr::set_names(tickers) |> 
+#    tibble::enframe() |> 
+#    tidyr::pivot_wider() |> 
+#    dplyr::mutate(
+#      return = port_ret,
+#      risk = port_sd,
+#      sharpe = sr
+#    )
+#}
+#
+#portfolio_values <- purrr::map(1:5000, sim_returns) |> 
+#  bind_rows(.id = "run")
+#
+#min_var <- portfolio_values[which.min(portfolio_values$risk),]
+#max_sr <- portfolio_values[which.max(portfolio_values$sharpe),]
 
 ```
 
@@ -447,136 +562,140 @@ Lets plot the weights of each portfolio. First with the minimum variance portfol
 
 ```{r}
 
-min_var |> 
-  pivot_longer(2:6) |> 
-  mutate(name = forcats::fct_reorder(name, value)) |> 
-  ggplot(aes(name, value)) +
-  geom_col() +
-  scale_y_continuous(labels = scales::percent) +
-  labs(
-    x = "Asset",
-    y = "Weight",
-    title = "Minimum variance portfolio weights"
-  )
+#min_var |> 
+#  pivot_longer(2:6) |> 
+#  mutate(name = forcats::fct_reorder(name, value)) |> 
+#  ggplot(aes(name, value)) +
+#  geom_col() +
+#  scale_y_continuous(labels = scales::percent) +
+#  labs(
+#    x = "Asset",
+#    y = "Weight",
+#    title = "Minimum variance portfolio weights"
+#  )
 
 ```
 
 ```{r}
-max_sr |> 
-  pivot_longer(2:6) |> 
-  mutate(name = forcats::fct_reorder(name, value)) |> 
-  ggplot(aes(name, value)) +
-  geom_col() +
-  scale_y_continuous(labels = scales::percent) +
-  labs(
-    x = "Asset",
-    y = "Weight",
-    title = "Tangency portfolio weights"
-  )
+#max_sr |> 
+#  pivot_longer(2:6) |> 
+#  mutate(name = forcats::fct_reorder(name, value)) |> 
+#  ggplot(aes(name, value)) +
+#  geom_col() +
+#  scale_y_continuous(labels = scales::percent) +
+#  labs(
+#    x = "Asset",
+#    y = "Weight",
+#    title = "Tangency portfolio weights"
+#  )
 ```
 
 ```{r}
-portfolio_values |> 
-  ggplot(aes(x = risk, y = return, color = sharpe)) +
-  geom_point() +
-  theme_classic() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_x_continuous(labels = scales::percent) +
-  labs(
-    x = 'Risk',
-    y = 'Returns',
-    title = "Portfolio Optimization & Efficient Frontier"
-  ) +
-  geom_point(
-    aes(x = risk, y = return), 
-    data = min_var, 
-    color = 'red'
-  ) +
-  geom_point(
-    aes(x = risk, y = return), 
-    data = max_sr, 
-    color = 'red'
-  )
+#portfolio_values |> 
+#  ggplot(aes(x = risk, y = return, color = sharpe)) +
+#  geom_point() +
+#  theme_classic() +
+#  scale_y_continuous(labels = scales::percent) +
+#  scale_x_continuous(labels = scales::percent) +
+#  labs(
+#    x = 'Risk',
+#    y = 'Returns',
+#    title = "Portfolio Optimization & Efficient Frontier"
+#  ) +
+#  geom_point(
+#    aes(x = risk, y = return), 
+#    data = min_var, 
+#    color = 'red'
+#  ) +
+#  geom_point(
+#    aes(x = risk, y = return), 
+#    data = max_sr, 
+#    color = 'red'
+#  )
 ```
 
 ## VaR do portfolio
 
 ```{r}
-pesos_finais <- min_var |> 
-  dplyr::select(2:6) |> 
-  as.numeric()
-
-
-rt_final <- mean(vol_futuro$serie * pesos_finais)
-st_dev_final <- sqrt(pesos_finais %*% cov_mat %*% pesos_finais)
-nu <- min(vol_futuro$shape)
-valor_t <- qt(.95, nu)
-
-(VaR <- rt_final + valor_t * st_dev_final / sqrt(nu/(nu-2)))
+#pesos_finais <- min_var |> 
+#  dplyr::select(2:6) |> 
+#  as.numeric()
+#
+#
+#rt_final <- mean(vol_futuro$serie * pesos_finais)
+#st_dev_final <- sqrt(pesos_finais %*% cov_mat %*% pesos_finais)
+#nu <- min(vol_futuro$shape)
+#valor_t <- qt(.95, nu)
+#
+#(VaR <- rt_final + valor_t * st_dev_final / sqrt(nu/(nu-2)))
 ```
 
 ## CAPM
 
 ```{r}
-portfolio_returns <- da_train |> 
-  tidyquant::tq_portfolio(
-    ticker, 
-    ret_closing_prices, 
-    weights = pesos_finais,
-    col_rename = "portfolio"
-  )
-
-market_returns <- yfR::yf_get(
-  "^BVSP",
-  first_date = data_corte + 1,
-  type_return = "log",
-  freq_data = "daily", 
-  do_complete_data = TRUE
-) |> 
-  dplyr::select(ref_date, ibov = ret_closing_prices)
-
-all_returns <- market_returns |> 
-  dplyr::inner_join(portfolio_returns, "ref_date") |> 
-  tidyr::drop_na()
-
-(beta_geral <- with(all_returns, cov(portfolio, ibov) / var(ibov)))
-
-calcular_beta <- function(ativo) {
-  da_train |> 
-    dplyr::filter(ticker == ativo) |> 
-    dplyr::inner_join(market_returns, "ref_date") |> 
-    tidyr::drop_na() |> 
-    with(cov(ret_closing_prices, ibov) / var(ibov))
-}
-
-betas <- purrr::map_dbl(ativos, calcular_beta) |> 
-  purrr::set_names(ativos)
-
-sum(betas * pesos_finais)
-beta_geral
-
+#portfolio_returns <- da_train |> 
+#  tidyquant::tq_portfolio(
+#    ticker, 
+#    ret_closing_prices, 
+#    weights = pesos_finais,
+#    col_rename = "portfolio"
+#  )
+#
+#market_returns <- yfR::yf_get(
+#  "^BVSP",
+#  first_date = data_corte + 1,
+#  type_return = "log",
+#  freq_data = "daily", 
+#  do_complete_data = TRUE
+#) |> 
+#  dplyr::select(ref_date, ibov = ret_closing_prices)
+#
+#all_returns <- market_returns |> 
+#  dplyr::inner_join(portfolio_returns, "ref_date") |> 
+#  tidyr::drop_na()
+#
+#(beta_geral <- with(all_returns, cov(portfolio, ibov) / var(ibov)))
+#
+#calcular_beta <- function(ativo) {
+#  da_train |> 
+#    dplyr::filter(ticker == ativo) |> 
+#    dplyr::inner_join(market_returns, "ref_date") |> 
+#    tidyr::drop_na() |> 
+#    with(cov(ret_closing_prices, ibov) / var(ibov))
+#}
+#
+#betas <- purrr::map_dbl(ativos, calcular_beta) |> 
+#  purrr::set_names(ativos)
+#
+#sum(betas * pesos_finais)
+#beta_geral
+#
 ```
 
 ```{r}
-
-capm_lm_tudo <- lm(portfolio ~ ibov, data = all_returns) |> 
-  broom::tidy() |> 
-  dplyr::filter(term == "ibov") |> 
-  with(estimate)
-
-capm_lm_individual <- purrr::map_dbl(ativos, \(ativo) {
-  da_model <- da_train |> 
-    dplyr::filter(ticker == ativo) |> 
-    dplyr::inner_join(market_returns, "ref_date")
-  lm(ret_closing_prices ~ ibov, data = da_model) |> 
-    broom::tidy() |> 
-    dplyr::filter(term == "ibov") |> 
-    dplyr::pull(estimate)
-}) |> 
-  purrr::set_names(ativos)
-
-
-capm_lm_tudo
-
-capm_lm_individual
+#
+#capm_lm_tudo <- lm(portfolio ~ ibov, data = all_returns) |> 
+#  broom::tidy() |> 
+#  dplyr::filter(term == "ibov") |> 
+#  with(estimate)
+#
+#capm_lm_individual <- purrr::map_dbl(ativos, \(ativo) {
+#  da_model <- da_train |> 
+#    dplyr::filter(ticker == ativo) |> 
+#    dplyr::inner_join(market_returns, "ref_date")
+#  lm(ret_closing_prices ~ ibov, data = da_model) |> 
+#    broom::tidy() |> 
+#    dplyr::filter(term == "ibov") |> 
+#    dplyr::pull(estimate)
+#}) |> 
+#  purrr::set_names(ativos)
+#
+#
+#capm_lm_tudo
+#
+#capm_lm_individual
 ```
+
+The reason for choosing the **IBOVESPA** index as the benchmark is due to the fact that it is the most used index by the financial market to evaluate the performance of equity investments. The other reason
+
+[1] Hyndman, R.J., & Athanasopoulos, G. (2021) Forecasting: principles and practice, 3rd edition, OTexts: Melbourne, Australia. OTexts.com/fpp3. Accessed on 2022-11-15.
