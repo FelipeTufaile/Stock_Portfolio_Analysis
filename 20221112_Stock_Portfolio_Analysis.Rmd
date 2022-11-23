@@ -52,6 +52,8 @@ library(tseries)
 library(prophet)
 library(rugarch)
 library(yfR)
+library(timetk)
+library(tidyquant)
 ```
 
 
@@ -149,8 +151,6 @@ find_best_garch <- function(asset, grid, df) {
 ##-- Defining function: Volatility Backtest --##
 
 volatility_backtest <- function(parms) {
-  
-  print(parms$ticker)
   
   ## Selects the asset and it squared log return
   ret <- df_log_returns %>% filter(ticker==parms$ticker) %>% pull(ret_closing_prices)
@@ -256,7 +256,93 @@ volatility_forecast <- function(parms, n_steps = 5) {
   )
   
 }
+
+
+
+##-- Defining function: Portfolio Simulation --##
+
+portfolio_simulation <- function(nruns, assets, return_xts) {
   
+  ## Creating an empty dataset
+  portfolios <- tibble(
+                   id = as.numeric(),
+                   B3SA3.SA = as.numeric(),
+                   ENEV3.SA = as.numeric(),
+                   HGRE11.SA = as.numeric(),
+                   MGLU3.SA = as.numeric(),
+                   PETR4.SA = as.numeric(),
+                   VALE3.SA = as.numeric(),
+                   portfolio_return = as.numeric(),
+                   portfolio_volatility = as.numeric(),
+                   portfolio_sharpe_ratio = as.numeric()
+                  )
+  
+  ## Creating a progress bar
+  # pb <- txtProgressBar(min = 1, max = nruns, style = 3)
+  
+  ## Calculating mean return
+  mean_ret <- colMeans(return_xts, na.rm = TRUE)
+  
+  ## Calculating the covariance matrix
+  cov_mat <- cov(return_xts) * 252
+  
+  ## Iterating nruns times
+  for (i in 1:nruns){
+
+    ## Defining random weights and normalizing it so the sum adds up to 1
+    wts <- runif(length(assets))
+    wts <- wts/sum(wts)
+  
+    ## Calculating portfolio returns  
+    port_ret <- sum(wts * mean_ret)
+    
+    ## Multiplying by the number of working days
+    port_ret <- ((port_ret + 1)^252) - 1
+    
+    ## Calculate the portfolio risk (volatility / standard deviation)
+    port_sd <- as.numeric(sqrt(t(wts) %*% (cov_mat %*% wts)))
+    
+    ## Calculating Sharpe Ratio
+    sharpe_ratio <- port_ret / port_sd
+    
+    portfolios <- portfolios %>%
+      bind_rows(.,
+                tibble(
+                  id = i,
+                  B3SA3.SA = wts[names(mean_ret)=="B3SA3.SA"],
+                  ENEV3.SA = wts[names(mean_ret)=="ENEV3.SA"],
+                  HGRE11.SA = wts[names(mean_ret)=="HGRE11.SA"],
+                  MGLU3.SA = wts[names(mean_ret)=="MGLU3.SA"],
+                  PETR4.SA = wts[names(mean_ret)=="PETR4.SA"],
+                  VALE3.SA = wts[names(mean_ret)=="VALE3.SA"],
+                  portfolio_return = port_ret,
+                  portfolio_volatility = port_sd,
+                  portfolio_sharpe_ratio = sharpe_ratio
+                )
+               )
+    
+    # Print progress
+	  # setTxtProgressBar(pb, i)
+  }
+  
+  return(portfolios)
+}
+
+
+##-- Defining function: Calculate Beta --##
+
+calculate_beta <- function(asset) {
+  
+  ## Filtering the corresponding return series
+  series <- df_log_returns %>%
+    dplyr::filter(ticker==asset) %>%
+    dplyr::mutate(ibov_return = df_bvsp$ibov)
+  
+  ## Calculating beta
+  beta <- as.numeric(lm(ret_closing_prices ~ ibov_return, data = series)$coefficients[2])
+
+  return (beta)
+}
 ```
 
 
@@ -480,7 +566,7 @@ After confirming that the return series are not autocorrelated and that the squa
 ```{r run_garch_models}
 
 ## Creating a grid search
-mtr <- crossing(m=c(0, 1), n=c(0, 1), p=c(0), q=c(0), dist=c("norm", "snorm", "std", "sstd"))
+mtr <- crossing(m=c(0, 1), n=c(0, 1), p=c(0), q=c(0), dist=c("snorm", "norm", "std", "sstd"))
 GridSearch <- bind_rows(cbind(tibble(model="fGARCH", submodel="TGARCH"), mtr),
                         cbind(tibble(model="fGARCH", submodel="GARCH"), mtr),
                         cbind(tibble(model="iGARCH", submodel=NULL), mtr %>% filter(n==1))) %>%
@@ -511,13 +597,13 @@ The rugarch package also allows backtesting by either applying a sliding window 
 
 ```{r}
 ## Creating table df_backtest
-df_backtest <- tibble(ticker=as.character(), rmse=as.numeric())
+df_backtest <- tibble(ticker=as.character(), mean_error=as.numeric())
 
 for (asset in tickers){
   
   ## Updating df_backtest table
   df_backtest <- df_backtest %>%
-    bind_rows(.,tibble(ticker=asset, rmse=volatility_backtest(parms=final_models[final_models$ticker==asset,])))
+    bind_rows(.,tibble(ticker=asset, mean_error=volatility_backtest(parms=final_models[final_models$ticker==asset,])))
 }
 
 df_backtest
@@ -565,6 +651,7 @@ for (asset in tickers){
                         omega=as_tibble(predictions$mat_coef)[2,1]$` Estimate`,
                         beta1=as_tibble(predictions$mat_coef)[3,1]$` Estimate`,
                         shape=as_tibble(predictions$mat_coef)[4,1]$` Estimate`,
+                        fut_vol=predictions$volatility,
                         var95=var))
 }
 
@@ -573,239 +660,241 @@ tb_forecast_var
 ```
 
 
-...
+## Portifolio Optimization
 
-## Montagem de portifolio
+As seen so far (also highlighted in the last table), each return series could be described, in general, by a return rate and volatility. Those parameters could, than, be used to compare the relationship between risk (volatility) and return for each asset. The knowledge of these parameters can be used to decide to invest in one asset over another in order to achieve some desired performance (e.g. maximum return / risk ratio or low risk). An even more interesting approach would be to determine the amounts (percentages) of each asset that, combined, would result the optimal value of the desired metric. The combination of these amounts of each asset will constitute what is called an investment portfolio.
+In this section, the objective will be to determine the percentages of each asset studied that would result the the optimal value of the following metrics:
 
-Reproduzindo cÃ³digo daqui:
+  - Sharpe ratio (return / risk ratio);
+  - Minimum risk.
 
-<https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-r/>
+In order to determine the best portfolio, the following code will run 50000 simulations (50000 different portfolios) and select those that match the above metrics by ordering by the desired metric first followed by the maximum return in order to handle possible ties for the desired metric. Details about the functions can be found in the beginning of this document.   
 
-VersÃ£o em python
+```{r plotting_portfolios, out.width="100%"}
+## Converting the original stock return dataset from format long to format wide
+df_log_returns_wider <- df_log_returns %>% 
+  dplyr::select(ref_date, name=ticker, value=ret_closing_prices) %>% 
+  tidyr::pivot_wider()
 
-<https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-python/>
+## Creating a timetk object
+df_log_returns_xts <- df_log_returns_wider %>% 
+  timetk::tk_xts(select=-ref_date, date_var=ref_date)
 
-```{r}
-#da_wide <- da_train |> 
-#  dplyr::select(ref_date, name = ticker, value = ret_closing_prices) |> 
-#  tidyr::pivot_wider()
-#
-#da_xts <- da_wide |> 
-#  timetk::tk_xts(select = -ref_date, date_var = ref_date)
+## Running simulations
+df_port_sim <- portfolio_simulation(nruns=50000, assets=tickers, return_xts=df_log_returns_xts)
+
+## Plotting the weights of each portfolio
+plot_min_volatility <- df_port_sim %>%
+  arrange(portfolio_volatility, desc(portfolio_return)) %>%
+  head(1) %>%
+  pivot_longer(2:7) %>% 
+  mutate(name = forcats::fct_reorder(name, value)) %>% 
+  ggplot(aes(name, value)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = "Asset",
+    y = "Weight",
+    title = "Min variance portfolio weights"
+  ) +
+  theme_classic() +
+  theme(axis.text.y = element_text(size=9),
+        axis.text.x = element_text(size=6))
+
+plot_max_sharpe_ratio <- df_port_sim %>%
+  arrange(desc(portfolio_sharpe_ratio), desc(portfolio_return)) %>%
+  head(1) %>%
+  pivot_longer(2:7) %>% 
+  mutate(name = forcats::fct_reorder(name, value)) %>% 
+  ggplot(aes(name, value)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = "Asset",
+    y = "Weight",
+    title = "Max sharpe ratio portfolio weights"
+  ) +
+  theme_classic() +
+  theme(axis.text.y = element_text(size=9),
+        axis.text.x = element_text(size=6))
+
+## Comparision
+plot <- ggarrange(plot_min_volatility, 
+                  plot_max_sharpe_ratio, 
+                  ncol=2, 
+                  nrow=1, 
+                  widths=c(1,1),
+                  legend="bottom",
+                  common.legend = T)
+
+annotate_figure(plot, top=text_grob("Portfolio optimization considering minimum volatility and maximum sharpe ratio", 
+                                    color="#000000", 
+                                    size=14, 
+                                    x=unit(0.5, "lines"), 
+                                    y=unit(0, "lines"), 
+                                    just="left", 
+                                    hjust=0, 
+                                    vjust=0))
 ```
+The left chart above indicates that if the desire was to obtain the **lowest risk** the best option would be to allocate most of the portfolio in **"HGRE11.SA"** and a only a small percentage in **MGLU3.SA**. This result is in line with what was expected since, as seen in the previous section, the asset **HGRE11.SA** has the lowest volatility while the asset **"MGLU3.SA"** has the second highest volatility. It would be only natural that the portfolio that optimizes based on lower risk would give priority to the less volatile asset to the detriment of assets with higher volatility. However, it is interesting to see that the **PETR4.SA**, which has the highest volatility it is not the stock with the lowest percentage. That could be due to the following:
 
+  - The simulation did not find the best portfolio that would optimize for the lowest risk condition;
+  - The portfolio selected would have the same risk as a portfolio with lower percentage of **PETR4.SA**. However, the portfolio selected has a higher return rate;
+  - Finally, even though **PETR4.SA** has the highest volatility, the combination of a certain amount of this asset with other assets may lower the volatility to a level that is lower than the minimum considering each asset individually;
 
-```{r}
-#mean_ret <- colMeans(da_xts, na.rm = TRUE)
-#print(round(mean_ret, 5))
-```
+The right chart, in turn, suggests that if the desired metric is now the optimum relationship between return and risk (sharpe ratio), the best option would be to allocate the majority of the portfolio in **ENEV3.SA**, followed by **VALE3.SA**, which have high return in average. The chart also suggest a small portion of **HGRE11.SA** and **MGLU3.SA**.  It is interesting to see that both optimization metrics significantly penalizes the asset **MGLU3.SA**. That also makes sense since in addition to the asset having one of the highest volatility, it also has the lowest return among the assets studied.
+In summary, considering the observation made, it seems that the simulations is doing a decent work finding the optimum portfolio in each case. There may be even better result, but the ones that were found so far are already satisfactory.
+In order to see how these options chosen compare with the other portfolios simulated, the next chart shows the plot of the return against the risk for each simulation. In the figure, the red dot at the top denotes the portfolio that optimizes the Sharpe ratio while the leftmost red dot denotes the portfolio with the lowest risk. It is important to highlight that the return have been annualized by multiplying the daily return by 252.
 
-Next we will calculate the covariance matrix for all these stocks. We will NOT annualize it by multiplying by 252.
-
-```{r}
-#cov_mat <- cov(da_xts, use = "complete.obs")
-#print(round(cov_mat,6))
-```
-
-Before we apply our methods to thousands of random portfolio, let us demonstrate the steps on a single portfolio.
-
-To calculate the portfolio returns and risk (standard deviation) we will us need
-
-- Mean assets returns
-- Portfolio weights
-- Covariance matrix of all assets
-- Random weights
-
-```{r}
-#set.seed(2)
-# Calculate the random weights
-#wts <- runif(n = length(ativos))
-
-#(wts <- wts/sum(wts))
-
-# Calculate the portfolio returns
-#(port_returns <- sum(wts * mean_ret))
-
-# Calculate the portfolio risk
-#(port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts)))
-
-# Calculate the Sharpe Ratio
-#(sharpe_ratio <- port_returns/port_risk)
-```
-
-We have everything we need to perform our optimization. All we need now is to run this code on 5000 random portfolios. For that we will use a for loop. 
-
-
-~Before we do that, we need to create empty vectors and matrix for storing our values.~
-
-```{r}
-#
-#sim_returns <- function(i) {
-#  wts <- runif(length(ativos))
-#  wts <- wts / sum(wts)
-#  port_ret <- sum(wts * mean_ret)
-#  port_sd <- as.numeric(sqrt(t(wts) %*% (cov_mat %*% wts)))
-#  sr <- port_ret / port_sd
-#  
-#  wts |> 
-#    purrr::set_names(tickers) |> 
-#    tibble::enframe() |> 
-#    tidyr::pivot_wider() |> 
-#    dplyr::mutate(
-#      return = port_ret,
-#      risk = port_sd,
-#      sharpe = sr
-#    )
-#}
-#
-#portfolio_values <- purrr::map(1:5000, sim_returns) |> 
-#  bind_rows(.id = "run")
-#
-#min_var <- portfolio_values[which.min(portfolio_values$risk),]
-#max_sr <- portfolio_values[which.max(portfolio_values$sharpe),]
-
-```
-
-Lets plot the weights of each portfolio. First with the minimum variance portfolio.
-
-```{r}
-
-#min_var |> 
-#  pivot_longer(2:6) |> 
-#  mutate(name = forcats::fct_reorder(name, value)) |> 
-#  ggplot(aes(name, value)) +
-#  geom_col() +
-#  scale_y_continuous(labels = scales::percent) +
-#  labs(
-#    x = "Asset",
-#    y = "Weight",
-#    title = "Minimum variance portfolio weights"
-#  )
-
-```
-
-```{r}
-#max_sr |> 
-#  pivot_longer(2:6) |> 
-#  mutate(name = forcats::fct_reorder(name, value)) |> 
-#  ggplot(aes(name, value)) +
-#  geom_col() +
-#  scale_y_continuous(labels = scales::percent) +
-#  labs(
-#    x = "Asset",
-#    y = "Weight",
-#    title = "Tangency portfolio weights"
-#  )
-```
-
-```{r}
-#portfolio_values |> 
-#  ggplot(aes(x = risk, y = return, color = sharpe)) +
-#  geom_point() +
-#  theme_classic() +
-#  scale_y_continuous(labels = scales::percent) +
-#  scale_x_continuous(labels = scales::percent) +
-#  labs(
-#    x = 'Risk',
-#    y = 'Returns',
-#    title = "Portfolio Optimization & Efficient Frontier"
-#  ) +
-#  geom_point(
-#    aes(x = risk, y = return), 
-#    data = min_var, 
-#    color = 'red'
-#  ) +
-#  geom_point(
-#    aes(x = risk, y = return), 
-#    data = max_sr, 
-#    color = 'red'
-#  )
+```{r plotting_efficiency_frontier, out.width="100%"}
+df_port_sim %>% 
+  ggplot(aes(x = portfolio_volatility, y = portfolio_return, color = portfolio_sharpe_ratio)) +
+  geom_point() +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(
+    x = 'Risk',
+    y = 'Returns',
+    title = "Portfolio Optimization & Efficient Frontier"
+  ) +
+  geom_point(
+    aes(x = portfolio_volatility, y = portfolio_return), 
+    data = df_port_sim %>% arrange(portfolio_volatility, desc(portfolio_return)) %>% head(1), 
+    color = 'red'
+  ) +
+  geom_point(
+    aes(x = portfolio_volatility, y = portfolio_return), 
+    data = df_port_sim %>% arrange(desc(portfolio_sharpe_ratio), desc(portfolio_return)) %>% head(1), 
+    color = 'red'
+  )
 ```
 
 ## VaR do portfolio
 
-```{r}
-#pesos_finais <- min_var |> 
-#  dplyr::select(2:6) |> 
-#  as.numeric()
-#
-#
-#rt_final <- mean(vol_futuro$serie * pesos_finais)
-#st_dev_final <- sqrt(pesos_finais %*% cov_mat %*% pesos_finais)
-#nu <- min(vol_futuro$shape)
-#valor_t <- qt(.95, nu)
-#
-#(VaR <- rt_final + valor_t * st_dev_final / sqrt(nu/(nu-2)))
+Considering the calculation of future volatility, a concept widely used to measure market risk one (a few) steps ahead is the concept of value at risk (VaR). The VaR calculation considers future volatility, a desired confidence level and an invested amount in order to determine the maximum possible value that can be lost through an investment, be it an asset or portfolio, according to the following equation:
+
+\begin{align*}
+VaR = r(1) + \frac{t_{\nu}(p)*\sqrt{h_{t}(1)}}{\sqrt{\frac{\nu}{\nu-2}}}
+\end{align*}
+
+Where $r(1)$ is one-step forward forecasting of returns, $h_{t}(1)$ is the volatility forecast, $\nu$ is the degree of freedom estimated and $t_{\nu}(p)$ is the p-quantile of Standard Student t-distribution with degrees of freedom.
+
+The following code calculates the VaR for the portfolio with the optimum Sharpe ratio. It can be seen that the value is ... 
+
+```{r var_portfolio_low_risk}
+## Fetching the best set of weights considering the best sharpe ratio
+best_weights <- df_port_sim %>% 
+  arrange(portfolio_volatility, desc(portfolio_return)) %>% 
+  head(1) %>%
+  pivot_longer(2:7) %>%
+  dplyr::select(name, value) %>%
+  dplyr::rename(ticker=name, weights=value) %>%
+  base::merge(., tb_forecast_var %>% select(ticker, fut_vol, shape), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
+  tibble::as_tibble() %>%
+  dplyr::mutate(weighted_volatility = weights*fut_vol,
+                weighted_shape =  weights*shape)
+
+
+## Calculating the covariance matrix
+cov_mat <- cov(df_log_returns_xts)
+
+## Calculating 
+volatility_final <- as.numeric(sqrt(best_weights$weights %*% cov_mat %*% best_weights$weights))
+
+## Calculating the degrees of freedom
+nu <- max(best_weights$shape)
+
+## Calculating the t-value from a t-student distribution
+tvalue <- qt(.95, nu)
+
+
+## Calculating the Value at risk (VaR) considering an investiment of R$ 1 million
+VaRv <- (sum(best_weights$weighted_volatility) + tvalue * volatility_final / sqrt(nu/(nu-2)))
+VaR <- VaRv*10^6
+
+print(paste("The value at risk for the optimum Sharpe Ratio portfolio with 95% confidence (VaR95) is: R$ ", 
+            round(VaR,0), 
+            " reais for an investment of R$ 1 million (", 
+            round(100*VaRv,1),
+            "%)", sep=""))
+```
+
+```{r var_portfolio_sharpe}
+## Fetching the best set of weights considering the best sharpe ratio
+best_weights <- df_port_sim %>% 
+  arrange(desc(portfolio_sharpe_ratio), desc(portfolio_return)) %>% 
+  head(1) %>%
+  pivot_longer(2:7) %>%
+  dplyr::select(name, value) %>%
+  dplyr::rename(ticker=name, weights=value) %>%
+  base::merge(., tb_forecast_var %>% select(ticker, fut_vol, shape), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
+  tibble::as_tibble() %>%
+  dplyr::mutate(weighted_volatility = weights*fut_vol,
+                weighted_shape =  weights*shape)
+
+
+## Calculating the covariance matrix
+cov_mat <- cov(df_log_returns_xts)
+
+## Calculating 
+volatility_final <- as.numeric(sqrt(best_weights$weights %*% cov_mat %*% best_weights$weights))
+
+## Calculating the degrees of freedom
+nu <- max(best_weights$shape)
+
+## Calculating the t-value from a t-student distribution
+tvalue <- qt(.95, nu)
+
+
+## Calculating the Value at risk (VaR) considering an investiment of R$ 1 million
+VaRv <- (sum(best_weights$weighted_volatility) + tvalue * volatility_final / sqrt(nu/(nu-2)))
+VaR <- VaRv*10^6
+
+print(paste("The value at risk for the optimum Sharpe Ratio portfolio with 95% confidence (VaR95) is: R$ ", 
+            round(VaR,0), 
+            " reais for an investment of R$ 1 million (", 
+            round(100*VaRv,1),
+            "%)", sep=""))
 ```
 
 ## CAPM
 
 ```{r}
-#portfolio_returns <- da_train |> 
-#  tidyquant::tq_portfolio(
-#    ticker, 
-#    ret_closing_prices, 
-#    weights = pesos_finais,
-#    col_rename = "portfolio"
-#  )
-#
-#market_returns <- yfR::yf_get(
-#  "^BVSP",
-#  first_date = data_corte + 1,
-#  type_return = "log",
-#  freq_data = "daily", 
-#  do_complete_data = TRUE
-#) |> 
-#  dplyr::select(ref_date, ibov = ret_closing_prices)
-#
-#all_returns <- market_returns |> 
-#  dplyr::inner_join(portfolio_returns, "ref_date") |> 
-#  tidyr::drop_na()
-#
-#(beta_geral <- with(all_returns, cov(portfolio, ibov) / var(ibov)))
-#
-#calcular_beta <- function(ativo) {
-#  da_train |> 
-#    dplyr::filter(ticker == ativo) |> 
-#    dplyr::inner_join(market_returns, "ref_date") |> 
-#    tidyr::drop_na() |> 
-#    with(cov(ret_closing_prices, ibov) / var(ibov))
-#}
-#
-#betas <- purrr::map_dbl(ativos, calcular_beta) |> 
-#  purrr::set_names(ativos)
-#
-#sum(betas * pesos_finais)
-#beta_geral
-#
+## Reading the log-return of BVSP closing price from a csv file
+df_bvsp <- read_csv("20221122_bvsp.csv", show_col_types = F) %>%
+    dplyr::mutate(ret_closing_prices = as.numeric(ret_closing_prices)) %>%
+    dplyr::filter(ref_date >= min(df_log_returns$ref_date) & ref_date <= end_date) %>%
+    dplyr::select(ref_date, ibov = ret_closing_prices)
+
+
+## Initializing result table
+all_betas <- tibble(ticker=as.character(), beta=as.numeric())
+
+## Calculating betas
+for (asset in tickers){
+  
+  all_betas <- all_betas %>%
+    bind_rows(., tibble(ticker=asset, beta=calculate_beta(asset=asset)))
+}
+
+## Merging with best portfolio information
+all_betas <- all_betas %>%
+  base::merge(., best_weights %>% select(ticker, weights), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
+  dplyr::mutate(weighted_beta = beta*weights)
+
+## Printing individual betas  
+all_betas
 ```
 
 ```{r}
-#
-#capm_lm_tudo <- lm(portfolio ~ ibov, data = all_returns) |> 
-#  broom::tidy() |> 
-#  dplyr::filter(term == "ibov") |> 
-#  with(estimate)
-#
-#capm_lm_individual <- purrr::map_dbl(ativos, \(ativo) {
-#  da_model <- da_train |> 
-#    dplyr::filter(ticker == ativo) |> 
-#    dplyr::inner_join(market_returns, "ref_date")
-#  lm(ret_closing_prices ~ ibov, data = da_model) |> 
-#    broom::tidy() |> 
-#    dplyr::filter(term == "ibov") |> 
-#    dplyr::pull(estimate)
-#}) |> 
-#  purrr::set_names(ativos)
-#
-#
-#capm_lm_tudo
-#
-#capm_lm_individual
+## Calculating the beta value for the portfolio
+sum(all_betas$weighted_beta)
 ```
-
 
 
 The reason for choosing the **IBOVESPA** index as the benchmark is due to the fact that it is the most used index by the financial market to evaluate the performance of equity investments. The other reason
 
 [1] Hyndman, R.J., & Athanasopoulos, G. (2021) Forecasting: principles and practice, 3rd edition, OTexts: Melbourne, Australia. OTexts.com/fpp3. Accessed on 2022-11-15.
+
+[2] D.D., Portfolio Optimization in R, https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-r/. Accessed on 2022-11-20.
