@@ -8,7 +8,7 @@ output: html_document
 
 ## Summary
 
-This document studies the time series of a group of 6 financial instruments with the aim of suggesting an investment portfolio composed of the assets in question in calculated proportion. The proportion of each asset, in turn, will be calculated by analyzing the assets log-return series, as well as modeling its volatility and calculating the Sharpe index. Finally, the study will end calculating the return of the portfolio, as well as its volatility, and compare it to a benchmark, which in this case will be considered to be, primary, the **IBOVESPA** index, but also the **CDI** (Interbank Deposit Certificate) index. 
+This document studies the time series of a group of 6 financial instruments with the aim of suggesting an investment portfolio composed of the assets in question in calculated proportion. The proportion of each asset, in turn, will be calculated by analyzing the assets log-return series, as well as modeling its volatility and calculating the Sharpe index. Finally, the study will end calculating the return of the portfolio, as well as its volatility, and compare it to a benchmark, which in this case will be the **IBOVESPA** index. 
 For the purpose fo this work, it will analyzed the following assets:
 
 
@@ -784,7 +784,7 @@ The following code calculates the VaR for the portfolio with the optimum Sharpe 
 
 ```{r var_portfolio_low_risk}
 ## Fetching the best set of weights considering the best sharpe ratio
-best_weights <- df_port_sim %>% 
+best_weights_volatility <- df_port_sim %>% 
   arrange(portfolio_volatility, desc(portfolio_return)) %>% 
   head(1) %>%
   pivot_longer(2:7) %>%
@@ -800,17 +800,17 @@ best_weights <- df_port_sim %>%
 cov_mat <- cov(df_log_returns_xts)
 
 ## Calculating 
-volatility_final <- as.numeric(sqrt(best_weights$weights %*% cov_mat %*% best_weights$weights))
+volatility_final <- as.numeric(sqrt(best_weights_volatility$weights %*% cov_mat %*% best_weights_volatility$weights))
 
 ## Calculating the degrees of freedom
-nu <- max(best_weights$shape)
+nu <- max(best_weights_volatility$shape)
 
 ## Calculating the t-value from a t-student distribution
 tvalue <- qt(.95, nu)
 
 
-## Calculating the Value at risk (VaR) considering an investiment of R$ 1 million
-VaRv <- (sum(best_weights$weighted_volatility) + tvalue * volatility_final / sqrt(nu/(nu-2)))
+## Calculating the Value at risk (VaR) considering an investment of R$ 1 million
+VaRv <- (sum(best_weights_volatility$weighted_volatility) + tvalue * volatility_final / sqrt(nu/(nu-2)))
 VaR <- VaRv*10^6
 
 print(paste("The value at risk for the optimum Sharpe Ratio portfolio with 95% confidence (VaR95) is: R$ ", 
@@ -822,7 +822,7 @@ print(paste("The value at risk for the optimum Sharpe Ratio portfolio with 95% c
 
 ```{r var_portfolio_sharpe}
 ## Fetching the best set of weights considering the best sharpe ratio
-best_weights <- df_port_sim %>% 
+best_weights_sharpe <- df_port_sim %>% 
   arrange(desc(portfolio_sharpe_ratio), desc(portfolio_return)) %>% 
   head(1) %>%
   pivot_longer(2:7) %>%
@@ -838,17 +838,17 @@ best_weights <- df_port_sim %>%
 cov_mat <- cov(df_log_returns_xts)
 
 ## Calculating 
-volatility_final <- as.numeric(sqrt(best_weights$weights %*% cov_mat %*% best_weights$weights))
+volatility_final <- as.numeric(sqrt(best_weights_sharpe$weights %*% cov_mat %*% best_weights_sharpe$weights))
 
 ## Calculating the degrees of freedom
-nu <- max(best_weights$shape)
+nu <- max(best_weights_sharpe$shape)
 
 ## Calculating the t-value from a t-student distribution
 tvalue <- qt(.95, nu)
 
 
 ## Calculating the Value at risk (VaR) considering an investiment of R$ 1 million
-VaRv <- (sum(best_weights$weighted_volatility) + tvalue * volatility_final / sqrt(nu/(nu-2)))
+VaRv <- (sum(best_weights_sharpe$weighted_volatility) + tvalue * volatility_final / sqrt(nu/(nu-2)))
 VaR <- VaRv*10^6
 
 print(paste("The value at risk for the optimum Sharpe Ratio portfolio with 95% confidence (VaR95) is: R$ ", 
@@ -859,6 +859,17 @@ print(paste("The value at risk for the optimum Sharpe Ratio portfolio with 95% c
 ```
 
 ## CAPM
+
+In the following section it will be used the **capital asset pricing model (CAPM)** as an alternative for pricing individuals assets  considering that the expected return of an asset varies more or less than a given reference, which, in the context of this work will be considered to be the **IBOVESPA** return. The reason for choosing the **IBOVESPA** index as the benchmark is due to the fact that it is the most used index by the financial market to evaluate the performance of equity investments in Brazil. Therefore, it will be calculated the beta values of each asset studied in this document and also the beta values of the optimum portfolios defined in the previous section considering the hypothesis assumed by the CAPM model.
+The CAPM formula can be written as follow:
+
+\begin{align*}
+E(R_{i}) = E(R_{f}) + \beta_{i}(E(R_{m}) - E(R_{f}))
+\end{align*}
+
+Where $E(R_{i})$ is the expected return of the ith-asset, $E(R_{f})$ is the risk free return and $E(R_{m})$ is the market return (which in the context of this work will be the **IBOVESPA** return.
+The beta value, in turn, indicates the relationship between systematic risk and expected return and will be estimated through a linear regression using the method of least squares, for each asset, and assuming that $E(R_{f}) = 0$.
+
 
 ```{r}
 ## Reading the log-return of BVSP closing price from a csv file
@@ -880,21 +891,38 @@ for (asset in tickers){
 
 ## Merging with best portfolio information
 all_betas <- all_betas %>%
-  base::merge(., best_weights %>% select(ticker, weights), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
-  dplyr::mutate(weighted_beta = beta*weights)
+  base::merge(., best_weights_volatility %>% select(ticker, weights), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
+  dplyr::rename(weights_opt_vol = weights) %>%
+  dplyr::mutate(weighted_beta_opt_vol = beta*weights_opt_vol) %>%
+  base::merge(., best_weights_sharpe %>% select(ticker, weights), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
+  dplyr::rename(weights_opt_sr = weights) %>%
+  dplyr::mutate(weighted_beta_opt_sr = beta*weights_opt_sr)
 
 ## Printing individual betas  
 all_betas
 ```
 
+Looking at the beta values calculated for each asset in the table above, it can be seen that **MGLU3.SA** and **PETR4.SA** have the higher beta values among all the assets with values higher than 1, which is the beta value addressed to the benchmark (**IBOVESPA**).
+That indicates that these two stocks returns are much more volatile than the market's, which means higher risk. Additionally, the beta value of **B3SA3.SA** is marginally above 1, suggesting a return volatility slightly higher than the return of the market, however much less volatile if compared to **MGLU3.SA** and **PETR4.SA**. On the other hand, **HGRE11.SA** has the lowest beta value, which suggests the lowest volatility. That is also aligned with all that has been pointed out so far about the volatility of this asset. The stocks **VALE3.SA** and **ENEV3.SA** also have beta values lower than 1, despite being much higher than the value of **HGRE11.SA**. Even so, these assets have less volatility if compared to the market.
+Finally, the return of both portfolios (minimum volatility and optimum Sharpe ratio) exhibit lower volatility than the market since the estimated beta value is less than 1 for both assets. 
+As expected, the beta value of the portfolio with minimum volatility is lower than the beta value of the portfolio with optimum Sharpe ratio. However, what is interesting to notice is that the portfolio with the optimum Sharpe ratio has a higher average return than the market (annualized average return of **IBOVESPA**: 2,4% and annualized average return of optimum Sharpe ratio portfolio: 13,1%) while its volatility is lower than the market. That confirms that the portfolio in question is, in fact, outperforms the market.
+ 
+
 ```{r}
 ## Calculating the beta value for the portfolio
-sum(all_betas$weighted_beta)
+beta_opt_vol <- sum(all_betas$weighted_beta_opt_vol)
+
+print(paste("The beta value of the portfolio that minimizes the volatility is:", round(beta_opt_vol,3)))
 ```
 
+```{r}
+## Calculating the beta value for the portfolio
+beta_opt_sr <- sum(all_betas$weighted_beta_opt_sr)
 
-The reason for choosing the **IBOVESPA** index as the benchmark is due to the fact that it is the most used index by the financial market to evaluate the performance of equity investments. The other reason
+print(paste("The beta value of the portfolio that optimizes the sharpe ratio is:", round(beta_opt_sr,3)))
+```
 
-[1] Hyndman, R.J., & Athanasopoulos, G. (2021) Forecasting: principles and practice, 3rd edition, OTexts: Melbourne, Australia. OTexts.com/fpp3. Accessed on 2022-11-15.
+[1] D.D., Portfolio Optimization in R, https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-r/. Accessed on 2022-11-20.
 
-[2] D.D., Portfolio Optimization in R, https://www.codingfinance.com/post/2018-05-31-portfolio-opt-in-r/. Accessed on 2022-11-20.
+[2] Hyndman, R.J., & Athanasopoulos, G. (2021) Forecasting: principles and practice, 3rd edition, OTexts: Melbourne, Australia. OTexts.com/fpp3. Accessed on 2022-11-15.
+
