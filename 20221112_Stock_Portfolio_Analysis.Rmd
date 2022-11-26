@@ -8,7 +8,7 @@ output: html_document
 
 ## Summary
 
-This document studies the time series of a group of 6 financial instruments with the aim of suggesting an investment portfolio composed of the assets in question in calculated proportion. The proportion of each asset, in turn, will be calculated by analyzing the assets log-return series, as well as modeling its volatility and calculating the Sharpe index. Finally, the study will end calculating the return of the portfolio, as well as its volatility, and compare it to a benchmark, which in this case will be the **IBOVESPA** index. 
+This document studies the time series of a group of 6 assets with the aim of suggesting an investment portfolio composed of a mixture of specific proportions of this assets. These proportions, will be calculated through the analysis of the log-return series of the assets, as well as modeling its volatility and calculating the Sharpe ratio index. Finally, the study will end calculating the return of the portfolio, as well as its volatility, and compare it to a benchmark, which in this case will be the **IBOVESPA** index. 
 For the purpose fo this work, it will analyzed the following assets:
 
 
@@ -339,7 +339,7 @@ calculate_beta <- function(asset) {
     dplyr::mutate(ibov_return = df_bvsp$ibov)
   
   ## Calculating beta
-  beta <- as.numeric(lm(ret_closing_prices ~ ibov_return, data = series)$coefficients[2])
+  beta <- as.numeric(lm(ret_closing_prices ~ 0 + ibov_return, data = series)$coefficients[1])
 
   return (beta)
 }
@@ -406,7 +406,7 @@ df_log_returns_tsibble %>%
 
 ## Plotting the log return series of the stock price
 
-Looking at the graph of the log return on the closing price of the assets, it is noted that the visual aspect of the return series of "MGLU3.SA" is the one that suggests the highest volatility, especially in the last 12 months. On the other hand, the visual aspect of the real estate investment fund log return series suggests that the asset has the lowest volatility among those studied. That statement will be verified later on this document, however it gives an educated guess about what to expect when calculating the volatility of the stock prices. 
+Looking at the graph of the log return on the closing price of the assets, it is noted that the visual aspect of the return series of **MGLU3.SA** is the one that suggests the highest volatility, especially in the last 12 months. On the other hand, the visual aspect of the real estate investment fund log return suggests that the asset has the lowest volatility among those studied. That statement will be verified later on this document, however it gives an educated guess about what to expect when calculating the volatility of the stock prices. 
 
 ```{r plotting_close_price_return, out.width="100%"}
 ## Plotting the closing price log return time series
@@ -435,7 +435,7 @@ df_log_returns_cln_tsibble <- df_log_returns_tsibble %>%
 ## Plotting the ACF and PACF functions of the log-returns
 
 
-The plot of the **ACF** and **PACF** functions suggests the presence of some autocorrelation for all log-return series, especially for "ENEV3.SA", "HGRE11.SA" and "PETR4.SA". That means that the log-return of the chosen stocks would not be considered **stationary** and, therefore, they would have unit roots. Consequently, it would be necessary to fit a **ARMA** model to make the log return series stationary. However, the **KPSS** and an **ADF** test suggests no presence of unit roots in any of the log return series, as it can be seen in the sequence. That confirms one of the usual facts in finance that is that the return series are usually not auto-correlated and are stationary. Given the result of the **KPSS** and **ADF** tests, the log return series will be considered stationary.
+The plot of the **ACF** and **PACF** functions suggests the presence of some autocorrelation for all log-return series, especially for "ENEV3.SA", "HGRE11.SA" and "PETR4.SA". That means that the log-return of the chosen stocks can not be considered **stationary** and, therefore, it should be fit an ARMA model to make the series stationary. This will be done in following sections along with volatility modeling. 
 
 ```{r plotting_acf, out.width="100%"}
 df_log_returns_cln_tsibble %>%
@@ -454,53 +454,36 @@ df_log_returns_cln_tsibble %>%
   ggtitle("PACF plot of the log return of closing prices of selected assets") +
   labs(x="Lag", y = "PACF")
 ```
+In order to confirm that the log return series is not a white noise (as it would be expected in most cases) the following code snippet applies a Ljun-Box test on the log return series. If the Ljung-Box test returns a large p-value the null hypothesis is not rejected, suggesting that the series is a **white noise**. Ljung-Box hypothesis:\
 
-## KPSS test on each stock series
+- H0: The series **behave like white noise**;
+- H1: The series **do not behave like white noise**;
 
+Looking at the p-values obtained with the test (for each individual series) it can be seen that they are all less than 0.05 for all series, therefore rejecting the null hypothesis and consequently concluding that they are not white noise. That, in turn, suggests that the series have auto-correlation as previously observed.
 
-The Kwiatkowski-Phillips-Schmidt-Shin (**KPSS**) test, (Kwiatkowski et al., 1992), is suggested by Robert Hyndman in his book (Hynman, 2021) as an alternative to verift the existance of unit roots in a time series. The test assumes that the data is stationary as the null hypothesis. Therefore, small p-values suggest that the data has an unit root and that differencing is required. Considering the log_return series, the **KPSS** test yields a p-value higher than 0.05 for each stock series, therefore, failing to reject null hypothesis. With that, all log-return series can be considered stationary as the graphical analysis of the ACF and PACF functions suggested.
-
-```{r kpss_test_transformed}
-## Performing KPSS test
-fabletools::features(.tbl=df_log_returns_cln_tsibble %>% select(ticker, ret_closing_prices) %>% group_by(ticker), 
-                     .var=ret_closing_prices, 
-                     features=list(unitroot_kpss, unitroot_nsdiffs))
-
-```
-
-## Augmented Dickey-Fuller (ADF) test on each stock series
-
-The null hypothesis of the **ADF** assumes that there is an unit root in the time series (therefore the series is non-stationary), whereas the alternate hypothesis assumes that the series are stationary. Since the p-values obtained for both tests are low (less than 0.05) the null hypothesis is rejected indicating that the series are stationary.
-
-
-```{r adf_test_original}
-## Remove the first null datat point from the log return series
-df_log_returns <- df_log_returns %>%
-  dplyr::filter(ref_date > first_date)
-
+```{r ljung_box_ret, out.width="100%"}
 ## Pulling log return data for each log return series
-B3SA3 <- df_log_returns %>% filter(ticker == 'B3SA3.SA') %>% select(ret_closing_prices) %>% pull()
-ENEV3 <- df_log_returns %>% filter(ticker == 'ENEV3.SA') %>% select(ret_closing_prices) %>% pull()
-HGRE11 <- df_log_returns %>% filter(ticker == 'HGRE11.SA') %>% select(ret_closing_prices) %>% pull()
-MGLU3 <- df_log_returns %>% filter(ticker == 'MGLU3.SA') %>% select(ret_closing_prices) %>% pull()
-PETR4 <- df_log_returns %>% filter(ticker == 'PETR4.SA') %>% select(ret_closing_prices) %>% pull()
-VALE3 <- df_log_returns %>% filter(ticker == 'VALE3.SA') %>% select(ret_closing_prices) %>% pull()
+B3SA3ret <- df_log_returns %>% filter(ticker == 'B3SA3.SA') %>% select(ret_closing_prices) %>% pull()
+ENEV3ret <- df_log_returns %>% filter(ticker == 'ENEV3.SA') %>% select(ret_closing_prices) %>% pull()
+HGRE11ret <- df_log_returns %>% filter(ticker == 'HGRE11.SA') %>% select(ret_closing_prices) %>% pull()
+MGLU3ret <- df_log_returns %>% filter(ticker == 'MGLU3.SA') %>% select(ret_closing_prices) %>% pull()
+PETR4ret <- df_log_returns %>% filter(ticker == 'PETR4.SA') %>% select(ret_closing_prices) %>% pull()
+VALE3ret <- df_log_returns %>% filter(ticker == 'VALE3.SA') %>% select(ret_closing_prices) %>% pull()
 
 ## Printing test results
-print(tseries::adf.test(B3SA3, alternative = c("stationary", "explosive"), k = trunc((length(B3SA3)-1)^(1/3))))
-print(tseries::adf.test(ENEV3, alternative = c("stationary", "explosive"), k = trunc((length(ENEV3)-1)^(1/3))))
-print(tseries::adf.test(HGRE11, alternative = c("stationary", "explosive"), k = trunc((length(HGRE11)-1)^(1/3))))
-print(tseries::adf.test(MGLU3, alternative = c("stationary", "explosive"), k = trunc((length(MGLU3)-1)^(1/3))))
-print(tseries::adf.test(PETR4, alternative = c("stationary", "explosive"), k = trunc((length(PETR4)-1)^(1/3))))
-print(tseries::adf.test(VALE3, alternative = c("stationary", "explosive"), k = trunc((length(VALE3)-1)^(1/3))))
+print(x=Box.test(B3SA3ret, lag=12, fitdf=1, type="Ljung-Box"))
+print(x=Box.test(ENEV3ret, lag=12, fitdf=1, type="Ljung-Box"))
+print(x=Box.test(HGRE11ret, lag=12, fitdf=1, type="Ljung-Box"))
+print(x=Box.test(MGLU3ret, lag=12, fitdf=1, type="Ljung-Box"))
+print(x=Box.test(PETR4ret, lag=12, fitdf=1, type="Ljung-Box"))
+print(x=Box.test(VALE3ret, lag=12, fitdf=1, type="Ljung-Box"))
 ```
-
 
 ## Squared log return series
 
-The calculation of the squared log return series of the assets prices show some interesting facts. 
+The calculation of the squared log return series of the assets prices shows some interesting facts. 
 Firstly, by squaring the log returns, the points in time that faced more volatility becomes more evident. For instance, it becomes even more clear the moment when the financial market crashed in March 2020 due to the announcement of the COVID pandemics. Another moment of high volatility that became more evident with the squared log return series is the peak that happen in "PETR4.SA" series in the first quarter of 2021. A quick research about this phenomena shows that "PETR4.SA" stock prices dropped nearly 21%, after president Jair Bolsonaro appointed General Joaquim Silva e Luna to replace the company's current president, Roberto Castello Branco. For Magazine Luiza, on other hand, a high volatility peak in the mid of the last quarter of 2021 was the result of the company's earnings release relative to the third quarter of the same year which indicated a decrease of nearly 90% of the gross revenue compared to the same period in the year before.
-Secondly, the squared log return also highlight another important usual fact that is common to financial data which is the presence of **conditional heteroscedasticity** or **volatility gathering** - periods when low and high fluctuations alternates. This last fact can be more easily diagnosed plotting the **ACF** and **PACF** functions of the squared log returns which denotes the existence of autocorrelation.
+Secondly, by plotting the **ACF** and **PACF** functions of the squared log returns it is possible to see some auto-correlation for some lags. That points out an important fact that is common to financial data which is the presence of **conditional heteroscedasticity** - periods when low and high fluctuations alternates.
 
 
 ```{r calculating_return_squared, out.width="100%"}
@@ -532,13 +515,7 @@ df_log_returns_cln_tsibble %>%
   labs(x="Lag", y = "PACF")
 ```
 
-
-The existence of conditional heteroscedasticity could also be verified applying a Ljun-Box test on the squared log return series. If the Ljung-Box test returns a large p-value the null hypothesis is not rejected, also suggesting that the residuals are **white noise**. Ljung-Box hypothesis:\
-
-- H0: The residuals **behave like white noise**;
-- H1: The residuals **do not behave like white noise**;
-
-Looking at the p-values obtained with test (for each individual series) it noticeable that they are all less than 0.05 for all series meaning that they have auto-correlation as expected.
+Testing the squared log return series for white noise behaviour also show that the squared log return have auto-correlation as it would be expected.
 
 ```{r ljung_box_r2, out.width="100%"}
 ## Pulling log return data for each log return series
@@ -561,15 +538,13 @@ print(x=Box.test(VALE3sqr, lag=12, fitdf=1, type="Ljung-Box"))
 
 ## Volatility models
 
-After confirming that the return series are not autocorrelated and that the squared returns, in turn, have autocorrelation, the volatility of each return series will be modeled using GARCH models. In the code below, different models will be tested considering combination of **model** type (between fGARCH and iGARCH), **submodel** (TGARCH, GARCH), values of **m** and **n** (between 0 or 1) and types of distribution for the returns (norm, snorm, std and sstd). The best models will then be selected considering the ones with the lowest **Akaike Criteria**.
+After confirming that the return series are not autocorrelated and that the squared returns, in turn, have autocorrelation, the volatility of each return series will be modeled using GARCH models. In the code below, different models will be tested considering combination of **model** type (hold constant as fGARCH), **submodel** (varying between TGARCH, GARCH), values of **m** and **n** (varying between 0, 1 and 2), values of **p** and **q**(varying between 0, 1, 2 and 3) and **distribution** type (hold constant as t-student). The best models will then be selected considering the ones with the lowest **Akaike Criteria**.
 
 ```{r run_garch_models}
-
 ## Creating a grid search
-mtr <- crossing(m=c(0, 1), n=c(0, 1), p=c(0), q=c(0), dist=c("snorm", "norm", "std", "sstd"))
+mtr <- crossing(m=c(0:2), n=c(0:2), p=c(0:3), q=c(0:3), dist=c("std"))
 GridSearch <- bind_rows(cbind(tibble(model="fGARCH", submodel="TGARCH"), mtr),
-                        cbind(tibble(model="fGARCH", submodel="GARCH"), mtr),
-                        cbind(tibble(model="iGARCH", submodel=NULL), mtr %>% filter(n==1))) %>%
+                        cbind(tibble(model="fGARCH", submodel="GARCH"), mtr)) %>%
   tibble::rownames_to_column("id")
 
 ## Running-hyper parameter tuning
@@ -637,6 +612,8 @@ tb_forecast_var <- tibble(ticker=as.character(),
                           var95=as.numeric())
 
 for (asset in tickers){
+  
+  print(asset)
   
   ## Predicinting the volatility one step ahead
   predictions <- volatility_forecast(parms=final_models[final_models$ticker==asset,], n_steps=1)
@@ -736,15 +713,11 @@ annotate_figure(plot, top=text_grob("Portfolio optimization considering minimum 
                                     hjust=0, 
                                     vjust=0))
 ```
-The left chart above indicates that if the desire was to obtain the **lowest risk** the best option would be to allocate most of the portfolio in **"HGRE11.SA"** and a only a small percentage in **MGLU3.SA**. This result is in line with what was expected since, as seen in the previous section, the asset **HGRE11.SA** has the lowest volatility while the asset **"MGLU3.SA"** has the second highest volatility. It would be only natural that the portfolio that optimizes based on lower risk would give priority to the less volatile asset to the detriment of assets with higher volatility. However, it is interesting to see that the **PETR4.SA**, which has the highest volatility it is not the stock with the lowest percentage. That could be due to the following:
-
-  - The simulation did not find the best portfolio that would optimize for the lowest risk condition;
-  - The portfolio selected would have the same risk as a portfolio with lower percentage of **PETR4.SA**. However, the portfolio selected has a higher return rate;
-  - Finally, even though **PETR4.SA** has the highest volatility, the combination of a certain amount of this asset with other assets may lower the volatility to a level that is lower than the minimum considering each asset individually;
-
-The right chart, in turn, suggests that if the desired metric is now the optimum relationship between return and risk (sharpe ratio), the best option would be to allocate the majority of the portfolio in **ENEV3.SA**, followed by **VALE3.SA**, which have high return in average. The chart also suggest a small portion of **HGRE11.SA** and **MGLU3.SA**.  It is interesting to see that both optimization metrics significantly penalizes the asset **MGLU3.SA**. That also makes sense since in addition to the asset having one of the highest volatility, it also has the lowest return among the assets studied.
-In summary, considering the observation made, it seems that the simulations is doing a decent work finding the optimum portfolio in each case. There may be even better result, but the ones that were found so far are already satisfactory.
+The left chart above indicates that if the desire was to obtain the **lowest risk** the best option would be to allocate most of the portfolio in **"HGRE11.SA"** and a only a small percentage in **PETR4.SA**, **B3SA3.SA** and **MGLU3.SA**. This result is in line with what was expected since, as seen in the previous section, the asset **HGRE11.SA** has the lowest volatility while **PETR4.SA** and **"MGLU3.SA"** have higher volatility. It would be only natural that the portfolio that optimizes based on lower risk would give priority to the less volatile asset to the detriment of assets with higher volatility. 
+The right chart, on the other hand, suggests that if the desired metric was now the optimum relationship between return and risk (Sharpe ratio), the best option would be to allocate the majority of the portfolio in **VALE3.SA** followed by **ENEV3.SA**, which have high return in average. The chart also suggest a small portion of **MGLU3.SA** which is probably due to the fact that the return of this asset is very low to level of risk it has.
+In summary, considering the comments made, it seems that the simulation is doing a decent job finding the optimum portfolio in each case. There may be even better result, but the ones that were found so far are already satisfactory.
 In order to see how these options chosen compare with the other portfolios simulated, the next chart shows the plot of the return against the risk for each simulation. In the figure, the red dot at the top denotes the portfolio that optimizes the Sharpe ratio while the leftmost red dot denotes the portfolio with the lowest risk. It is important to highlight that the return have been annualized by multiplying the daily return by 252.
+
 
 ```{r plotting_efficiency_frontier, out.width="100%"}
 df_port_sim %>% 
@@ -803,7 +776,7 @@ cov_mat <- cov(df_log_returns_xts)
 volatility_final <- as.numeric(sqrt(best_weights_volatility$weights %*% cov_mat %*% best_weights_volatility$weights))
 
 ## Calculating the degrees of freedom
-nu <- max(best_weights_volatility$shape)
+nu <- 100
 
 ## Calculating the t-value from a t-student distribution
 tvalue <- qt(.95, nu)
@@ -841,7 +814,7 @@ cov_mat <- cov(df_log_returns_xts)
 volatility_final <- as.numeric(sqrt(best_weights_sharpe$weights %*% cov_mat %*% best_weights_sharpe$weights))
 
 ## Calculating the degrees of freedom
-nu <- max(best_weights_sharpe$shape)
+nu <- 100
 
 ## Calculating the t-value from a t-student distribution
 tvalue <- qt(.95, nu)
@@ -892,11 +865,11 @@ for (asset in tickers){
 ## Merging with best portfolio information
 all_betas <- all_betas %>%
   base::merge(., best_weights_volatility %>% select(ticker, weights), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
-  dplyr::rename(weights_opt_vol = weights) %>%
-  dplyr::mutate(weighted_beta_opt_vol = beta*weights_opt_vol) %>%
+  dplyr::rename(w_opt_vol = weights) %>%
+  dplyr::mutate(w_beta_opt_vol = beta*w_opt_vol) %>%
   base::merge(., best_weights_sharpe %>% select(ticker, weights), by.x="ticker", by.y="ticker", all.x=F, all.y=F) %>%
-  dplyr::rename(weights_opt_sr = weights) %>%
-  dplyr::mutate(weighted_beta_opt_sr = beta*weights_opt_sr)
+  dplyr::rename(w_opt_sr = weights) %>%
+  dplyr::mutate(w_beta_opt_sr = beta*w_opt_sr)
 
 ## Printing individual betas  
 all_betas
@@ -910,14 +883,14 @@ As expected, the beta value of the portfolio with minimum volatility is lower th
 
 ```{r}
 ## Calculating the beta value for the portfolio
-beta_opt_vol <- sum(all_betas$weighted_beta_opt_vol)
+beta_opt_vol <- sum(all_betas$w_beta_opt_vol)
 
 print(paste("The beta value of the portfolio that minimizes the volatility is:", round(beta_opt_vol,3)))
 ```
 
 ```{r}
 ## Calculating the beta value for the portfolio
-beta_opt_sr <- sum(all_betas$weighted_beta_opt_sr)
+beta_opt_sr <- sum(all_betas$w_beta_opt_sr)
 
 print(paste("The beta value of the portfolio that optimizes the sharpe ratio is:", round(beta_opt_sr,3)))
 ```
